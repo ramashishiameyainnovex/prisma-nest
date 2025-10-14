@@ -1,12 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -14,40 +7,221 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// prisma/schema.prisma
+model Company {
+  id         String   @id @default(cuid())
+  name       String
+  phone      String?
+  email      String?
+  address    String?
+  city       String?
+  district   String?
+  state      String?
+  country    String?
+  zipCode    String?
+  
+  // Relations
+  companyRoles CompanyRole[]   @relation("CompaniesRoles")
+  companyUsers CompanyUser[]   @relation("CompanyUsers")
+  shifts       Shift[]         @relation("CompanyShifts")
+  attendances  Attendance[]    @relation("CompanyAttendances") // Added relation to Attendance
 
-model Post {
-  id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  author    User     @relation(fields: [authorId], references: [id])
-  authorId  Int
+
+  @@map("companies")
 }
 
-model Profile {
-  id     Int     @id @default(autoincrement())
-  bio    String?
-  user   User    @relation(fields: [userId], references: [id])
-  userId Int     @unique
+model CompanyUser {
+  id String @id @default(cuid())
+
+  // Relations
+  userId    String
+  user      User    @relation("UserCompanyUser", fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company @relation("CompanyUsers", fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Role assignment
+  roleId String?
+  role   CompanyRole? @relation("CompanyUserRole", fields: [roleId], references: [id])
+
+  firstName  String?
+  middleName String?
+  lastName   String?
+  
+  // Status
+  status     CompanyUserStatus @default(PENDING)
+  isActive   Boolean           @default(true)
+
+  // Relations to Shift
+  createdShifts Shift[]                          @relation("ShiftCreatedBy")
+  shiftAssignments ShiftAttributeAssignment[]    @relation("ShiftAttributeAssignee")
+
+  // Relations to Attendance
+  attendances Attendance[] @relation("CompanyUserAttendances") // Added relation
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, companyId])
+  @@map("company_users")
 }
 
 model User {
-  id      Int      @id @default(autoincrement())
-  email   String   @unique
-  name    String?
-  posts   Post[]
-  profile Profile?
+  id    String @id @default(cuid())
+  email String @unique
+  
+  // Relation to CompanyUser
+  companyUsers CompanyUser[] @relation("UserCompanyUser")
+  
+  // Relation to Attendance
+  attendances Attendance[] @relation("UserAttendances") // Added relation
+
+  @@map("users")
 }
 
-model Article {
-  id          Int      @id @default(autoincrement())
-  title       String   @unique
+model CompanyRole {
+  id          String  @id @default(cuid())
+  name        String
   description String?
-  body        String
-  published   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
+  // Relations
+  companyId String  
+  company   Company @relation("CompaniesRoles", fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Users with this role
+  companyUsers CompanyUser[] @relation("CompanyUserRole")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@map("company_roles")
+}
+
+enum CompanyUserStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Shift {
+  id               String            @id @default(cuid())
+  companyId        String
+  shiftCreatedBy   String
+  
+  // Relations
+  company          Company           @relation("CompanyShifts", fields: [companyId], references: [id], onDelete: Cascade)
+  shiftAttributes  ShiftAttribute[]  @relation("ShiftAttributes")
+  createdBy        CompanyUser       @relation("ShiftCreatedBy", fields: [shiftCreatedBy], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("shifts")
+}
+
+model ShiftAttribute {
+  id                 String   @id @default(cuid())
+  shiftId            String
+  shiftName          String
+  startTime          DateTime
+  endTime            DateTime
+  breakDuration      Int?     // in minutes
+  gracePeriodMinutes Int?     // grace period in minutes
+  description        String?
+  color              String?  // for UI display
+  isActive           Boolean  @default(true)
+
+  // Relations
+  shift       Shift                       @relation("ShiftAttributes", fields: [shiftId], references: [id], onDelete: Cascade)
+  assignments ShiftAttributeAssignment[]  @relation("ShiftAttributeAssignments")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("shift_attributes")
+}
+
+model ShiftAttributeAssignment {
+  id                 String  @id @default(cuid())
+  shiftAttributeId   String
+  assignedUserId     String  // CompanyUser ID
+
+  // Relations
+  shiftAttribute ShiftAttribute @relation("ShiftAttributeAssignments", fields: [shiftAttributeId], references: [id], onDelete: Cascade)
+  assignedUser   CompanyUser    @relation("ShiftAttributeAssignee", fields: [assignedUserId], references: [id], onDelete: Cascade)
+
+  assignedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([shiftAttributeId, assignedUserId])
+  @@map("shift_attribute_assignments")
+}
+
+model Attendance {
+  id           String   @id @default(cuid()) // Changed to cuid for consistency
+  companyId    String
+  userId       String
+  companyUserId String? // Added companyUserId to link with CompanyUser
+
+  // Punch records
+  userPunches  UserPunch[] @relation("AttendanceUserPunches") // Fixed relation name
+  punchDate    DateTime
+  totalWorkHours Float?    // Added total work hours for the day
+  totalOvertime  Float?    // Added total overtime for the day
+  finalStatus    AttendanceStatus @default(PRESENT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  company     Company     @relation("CompanyAttendances", fields: [companyId], references: [id], onDelete: Cascade)
+  user        User        @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
+  companyUser CompanyUser? @relation("CompanyUserAttendances", fields: [companyUserId], references: [id], onDelete: Cascade)
+
+  // Unique constraint - one attendance record per user per company per day
+  @@unique([companyId, userId, punchDate])
+  @@map("attendances")
+}
+
+model UserPunch {
+  id               String           @id @default(cuid()) // Changed to cuid for consistency
+  attendanceId     String
+  punchIn          DateTime
+  punchInLocation  String?          // Made optional
+  punchOut         DateTime?
+  punchOutLocation String?
+  workHours        Float?           // Work hours for this punch cycle
+  overtime         Float?           // Overtime for this punch cycle
+  status           AttendanceStatus @default(PRESENT)
+  remarks          String?
+  
+  // Additional fields for better tracking
+  punchType        PunchType        @default(IN) // IN or OUT
+  deviceId         String?          // Device used for punching
+  ipAddress        String?          // IP address of the device
+
+  // Relations
+  attendance Attendance @relation("AttendanceUserPunches", fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_punches")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  ON_LEAVE
+  HALF_DAY
+  LATE
+  EARLY_LEAVE
+}
+
+enum PunchType {
+  IN
+  OUT
 }

@@ -9,9 +9,10 @@ import { UserModule } from './user/user.module';
 import { CompanyRoleModule } from './companyrole/companyrole.module';
 import { ShiftModule } from './shift/shift.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { CompanyoffModule } from './companyoff/companyoff.module';
 
 @Module({
-  imports: [PrismaModule, ArticlesModule, CompanyModule, CompanyUserModule, UserModule, CompanyRoleModule, ShiftModule, AttendanceModule],
+  imports: [PrismaModule, ArticlesModule, CompanyModule, CompanyUserModule, UserModule, CompanyRoleModule, ShiftModule, AttendanceModule, CompanyoffModule],
   controllers: [AppController],
   providers: [AppService],
 })

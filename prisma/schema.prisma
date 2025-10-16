@@ -23,7 +23,9 @@ model Company {
   companyRoles CompanyRole[]   @relation("CompaniesRoles")
   companyUsers CompanyUser[]   @relation("CompanyUsers")
   shifts       Shift[]         @relation("CompanyShifts")
-  attendances  Attendance[]    @relation("CompanyAttendances") // Added relation to Attendance
+  attendances  Attendance[]    @relation("CompanyAttendances")
+  companyOffs  CompanyOff[]    @relation("CompanyOffs") // Added relation
+  offDays      OffDay[]        @relation("CompanyOffsOffDays") // Added relation for OffDay <-> Company
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -57,7 +59,11 @@ model CompanyUser {
   shiftAssignments ShiftAttributeAssignment[]    @relation("ShiftAttributeAssignee")
 
   // Relations to Attendance
-  attendances Attendance[] @relation("CompanyUserAttendances") // Added relation
+  attendances Attendance[] @relation("CompanyUserAttendances")
+
+  // Relations to Off Days
+  createdOffDays OffDay[]    @relation("OffDayCreatedBy") // Added relation
+  usersOffs      UsersOff[]  @relation("UsersOffAssignee") // Added relation
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -74,7 +80,7 @@ model User {
   companyUsers CompanyUser[] @relation("UserCompanyUser")
   
   // Relation to Attendance
-  attendances Attendance[] @relation("UserAttendances") // Added relation
+  attendances Attendance[] @relation("UserAttendances")
 
   @@map("users")
 }
@@ -127,10 +133,10 @@ model ShiftAttribute {
   shiftName          String
   startTime          DateTime
   endTime            DateTime
-  breakDuration      Int?     // in minutes
-  gracePeriodMinutes Int?     // grace period in minutes
+  breakDuration      Int?     
+  gracePeriodMinutes Int?     
   description        String?
-  color              String?  // for UI display
+  color              String?  
   isActive           Boolean  @default(true)
 
   // Relations
@@ -146,7 +152,7 @@ model ShiftAttribute {
 model ShiftAttributeAssignment {
   id                 String  @id @default(cuid())
   shiftAttributeId   String
-  assignedUserId     String  // CompanyUser ID
+  assignedUserId     String  
 
   // Relations
   shiftAttribute ShiftAttribute @relation("ShiftAttributeAssignments", fields: [shiftAttributeId], references: [id], onDelete: Cascade)
@@ -161,16 +167,16 @@ model ShiftAttributeAssignment {
 }
 
 model Attendance {
-  id           String   @id @default(cuid()) // Changed to cuid for consistency
+  id           String   @id @default(cuid()) 
   companyId    String
   userId       String
-  companyUserId String? // Added companyUserId to link with CompanyUser
+  companyUserId String? 
 
   // Punch records
-  userPunches  UserPunch[] @relation("AttendanceUserPunches") // Fixed relation name
+  userPunches  UserPunch[] @relation("AttendanceUserPunches") 
   punchDate    DateTime
-  totalWorkHours Float?    // Added total work hours for the day
-  totalOvertime  Float?    // Added total overtime for the day
+  totalWorkHours Float?    
+  totalOvertime  Float?    
   finalStatus    AttendanceStatus @default(PRESENT)
 
   createdAt DateTime @default(now())
@@ -181,27 +187,25 @@ model Attendance {
   user        User        @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
   companyUser CompanyUser? @relation("CompanyUserAttendances", fields: [companyUserId], references: [id], onDelete: Cascade)
 
-  // Unique constraint - one attendance record per user per company per day
   @@unique([companyId, userId, punchDate])
   @@map("attendances")
 }
 
 model UserPunch {
-  id               String           @id @default(cuid()) // Changed to cuid for consistency
+  id               String           @id @default(cuid()) 
   attendanceId     String
   punchIn          DateTime
-  punchInLocation  String?          // Made optional
+  punchInLocation  String?          
   punchOut         DateTime?
   punchOutLocation String?
-  workHours        Float?           // Work hours for this punch cycle
-  overtime         Float?           // Overtime for this punch cycle
+  workHours        Float?           
+  overtime         Float?          
   status           AttendanceStatus @default(PRESENT)
   remarks          String?
   
-  // Additional fields for better tracking
-  punchType        PunchType        @default(IN) // IN or OUT
-  deviceId         String?          // Device used for punching
-  ipAddress        String?          // IP address of the device
+  punchType        PunchType        @default(IN) 
+  deviceId         String?          
+  ipAddress        String?          
 
   // Relations
   attendance Attendance @relation("AttendanceUserPunches", fields: [attendanceId], references: [id], onDelete: Cascade)
@@ -224,4 +228,49 @@ enum AttendanceStatus {
 enum PunchType {
   IN
   OUT
+}
+
+model CompanyOff {
+  id          String   @id @default(cuid()) // Changed to cuid for consistency
+  companyId   String
+  weekDay     Int[]
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  company Company  @relation("CompanyOffs", fields: [companyId], references: [id], onDelete: Cascade)
+  offDays OffDay[] @relation("CompanyOffDays")
+}
+
+model OffDay {
+  id           String     @id @default(cuid()) // Changed to cuid for consistency
+  name         String
+  holidayType  String
+  fromDate     DateTime
+  toDate       DateTime
+  startTime    String
+  endTime      String
+  description  String
+  
+  companyId    String
+  createdById  String
+  companyOffId String?
+
+  company    Company     @relation("CompanyOffsOffDays", fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy  CompanyUser @relation("OffDayCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  companyOff CompanyOff? @relation("CompanyOffDays", fields: [companyOffId], references: [id], onDelete: Cascade)
+  usersOffs  UsersOff[]  @relation("OffDayUsers") // Added relation
+}
+
+model UsersOff {
+  id       String @id @default(cuid()) // Changed to cuid for consistency
+  userId   String
+  offDayId String
+
+  // Relations
+  user   CompanyUser @relation("UsersOffAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  offDay OffDay      @relation("OffDayUsers", fields: [offDayId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, offDayId])
 }

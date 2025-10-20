@@ -24,8 +24,10 @@ model Company {
   companyUsers CompanyUser[]   @relation("CompanyUsers")
   shifts       Shift[]         @relation("CompanyShifts")
   attendances  Attendance[]    @relation("CompanyAttendances")
-  companyOffs  CompanyOff[]    @relation("CompanyOffs") // Added relation
-  offDays      OffDay[]        @relation("CompanyOffsOffDays") // Added relation for OffDay <-> Company
+  companyOffs  CompanyOff[]    @relation("CompanyOffs")
+  offDays      OffDay[]        @relation("CompanyOffsOffDays")
+  leaveTypeAllocation LeaveTypeAllocation? @relation("CompanyLeaveTypeAllocation")
+  leaves       Leave[]         @relation("CompanyLeaves")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -62,8 +64,16 @@ model CompanyUser {
   attendances Attendance[] @relation("CompanyUserAttendances")
 
   // Relations to Off Days
-  createdOffDays OffDay[]    @relation("OffDayCreatedBy") // Added relation
-  usersOffs      UsersOff[]  @relation("UsersOffAssignee") // Added relation
+  createdOffDays OffDay[]    @relation("OffDayCreatedBy")
+  usersOffs      UsersOff[]  @relation("UsersOffAssignee")
+
+  // Relations to Leave System
+   usersLeaveRecords UsersLeaveRecord[] @relation("CompanyUserLeaveRecords")
+  createdLeaveAllocations LeaveTypeAllocation[] @relation("LeaveAllocationCreatedBy")
+  leavesApplied Leave[] @relation("UserLeaves")
+  leavesApproved Leave[] @relation("ApprovedLeaves")
+  comments      Comment[] @relation("UserComments")
+  attachments   Attachment[] @relation("UserAttachments")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -81,6 +91,9 @@ model User {
   
   // Relation to Attendance
   attendances Attendance[] @relation("UserAttendances")
+
+  // Relation to Leave System
+  usersLeaveRecords UsersLeaveRecord[] @relation("UserLeaveRecords")
 
   @@map("users")
 }
@@ -231,7 +244,7 @@ enum PunchType {
 }
 
 model CompanyOff {
-  id          String   @id @default(cuid()) // Changed to cuid for consistency
+  id          String   @id @default(cuid())
   companyId   String
   weekDay     Int[]
   description String?
@@ -244,7 +257,7 @@ model CompanyOff {
 }
 
 model OffDay {
-  id           String     @id @default(cuid()) // Changed to cuid for consistency
+  id           String     @id @default(cuid())
   name         String
   holidayType  String
   fromDate     DateTime
@@ -260,11 +273,11 @@ model OffDay {
   company    Company     @relation("CompanyOffsOffDays", fields: [companyId], references: [id], onDelete: Cascade)
   createdBy  CompanyUser @relation("OffDayCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   companyOff CompanyOff? @relation("CompanyOffDays", fields: [companyOffId], references: [id], onDelete: Cascade)
-  usersOffs  UsersOff[]  @relation("OffDayUsers") // Added relation
+  usersOffs  UsersOff[]  @relation("OffDayUsers")
 }
 
 model UsersOff {
-  id       String @id @default(cuid()) // Changed to cuid for consistency
+  id       String @id @default(cuid())
   userId   String
   offDayId String
 
@@ -273,4 +286,159 @@ model UsersOff {
   offDay OffDay      @relation("OffDayUsers", fields: [offDayId], references: [id], onDelete: Cascade)
 
   @@unique([userId, offDayId])
+}
+
+// Leave System Models
+
+model LeaveTypeAllocation {
+  id        String   @id @default(cuid())
+  companyId String   @unique
+  
+  // Relations
+  company        Company          @relation("CompanyLeaveTypeAllocation", fields: [companyId], references: [id], onDelete: Cascade)
+  leaveAttributes LeaveAttribute[] @relation("LeaveTypeAllocationAttributes") // Change LeaveAttributes[] to LeaveAttribute[]
+  
+  createdById String
+  createdBy   CompanyUser @relation("LeaveAllocationCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("leave_type_allocations")
+
+}
+
+model LeaveAttribute {
+  id                   String   @id @default(cuid())
+  leaveTypeAllocationId String
+  year                 Int
+  leaveName            String
+  role                 String
+  allocatedDays        Int
+  isActive             Boolean  @default(true)
+  
+  // Relations
+  leaveTypeAllocation LeaveTypeAllocation @relation("LeaveTypeAllocationAttributes", fields: [leaveTypeAllocationId], references: [id], onDelete: Cascade)
+  usersLeaveRecords   UsersLeaveRecord[]  @relation("LeaveAttributeRecords")
+  leaves              Leave[]             @relation("LeaveAttributeLeaves")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([leaveTypeAllocationId, year, leaveName, role])
+  @@map("leave_attributes")
+}
+
+model UsersLeaveRecord {
+  id               String   @id @default(cuid())
+  userId           String
+  leaveAttributeId String
+  year             Int
+  usedDays         Int      @default(0)
+  remainingDays    Int
+  carriedOverDays  Int      @default(0)
+  
+  // Relations
+  user             User               @relation("UserLeaveRecords", fields: [userId], references: [id], onDelete: Cascade)
+  leaveAttribute   LeaveAttribute     @relation("LeaveAttributeRecords", fields: [leaveAttributeId], references: [id], onDelete: Cascade)
+  carryForwardDays CarryForwardDays[]  @relation("LeaveRecordCarryForwards")
+  leaves           Leave[]            @relation("UserLeaveRecordLeaves")
+  companyUser      CompanyUser        @relation("CompanyUserLeaveRecords", fields: [companyUserId], references: [id], onDelete: Cascade)
+
+  companyUserId    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, leaveAttributeId, year])
+  @@unique([userId, leaveAttributeId]) // Add this line for the composite reference
+  @@map("users_leave_records")
+}
+
+
+model CarryForwardDays {
+  id                 String           @id @default(cuid())
+  days               Int
+  year               Int
+  usersLeaveRecordId String
+  
+  // Relations
+  usersLeaveRecord UsersLeaveRecord @relation("LeaveRecordCarryForwards", fields: [usersLeaveRecordId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("carry_forward_days")
+}
+
+model Leave {
+  id          String      @id @default(cuid())
+  userId      String
+  companyId   String
+  leaveTypeId String
+  startDate   DateTime
+  endDate     DateTime
+  status      LeaveStatus @default(PENDING)
+  reason      String?
+  approverId  String?
+
+  comments    Comment[]     @relation("LeaveComments")
+  attachments Attachment[]  @relation("LeaveAttachments")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  approver  CompanyUser? @relation("ApprovedLeaves", fields: [approverId], references: [id])
+  userLeave CompanyUser  @relation("UserLeaves", fields: [userId], references: [id])
+  company   Company      @relation("CompanyLeaves", fields: [companyId], references: [id])
+  leaveType LeaveAttribute @relation("LeaveAttributeLeaves", fields: [leaveTypeId], references: [id])
+  usersLeaveRecord UsersLeaveRecord? @relation("UserLeaveRecordLeaves", fields: [usersLeaveRecordId], references: [id]) // Change this line
+
+  // Add this field for the relation
+  usersLeaveRecordId String?
+
+  @@map("leaves")
+}
+
+model Comment {
+  id          String   @id @default(uuid())
+  userId      String
+  leaveId     String
+  comment     String
+  commentDate DateTime @default(now())
+
+  user  CompanyUser @relation("UserComments", fields: [userId], references: [id], onDelete: Cascade)
+  leave Leave       @relation("LeaveComments", fields: [leaveId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("comments")
+}
+
+model Attachment {
+  id             String   @id @default(uuid())
+  userId         String
+  leaveId        String
+  attachment     String
+  fileName       String?
+  fileSize       Int?
+  mimeType       String?
+  attachmentDate DateTime @default(now())
+
+  user  CompanyUser @relation("UserAttachments", fields: [userId], references: [id], onDelete: Cascade)
+  leave Leave       @relation("LeaveAttachments", fields: [leaveId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("attachments")
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  IN_REVIEW
 }

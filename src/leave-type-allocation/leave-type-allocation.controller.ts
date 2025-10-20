@@ -44,9 +44,10 @@ export class LeaveTypeAllocationController {
     return await this.leaveTypeAllocationService.update(id, updateLeaveTypeAllocationDto);
   }
 
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('id') id: string) {
-    return await this.leaveTypeAllocationService.remove(id);
-  }
+ @Delete('attributes')
+@HttpCode(HttpStatus.OK)
+async removeAttributes(@Body('attributeIds') attributeIds: string[]) {
+  return await this.leaveTypeAllocationService.removeAttributes(attributeIds);
+}
+
 }

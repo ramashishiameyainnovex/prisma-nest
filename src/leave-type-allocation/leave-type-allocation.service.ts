@@ -381,38 +381,33 @@ async update(
   });
 }
 
+async removeAttributes(attributeIds: string[]) {
+  if (!attributeIds || attributeIds.length === 0) {
+    throw new BadRequestException('No leave attribute IDs provided');
+  }
 
-async remove(id: string) {
-  const allocation = await this.prisma.leaveTypeAllocation.findUnique({
-    where: { id },
-    include: { leaveAttributes: true },
+  const existingAttributes = await this.prisma.leaveAttribute.findMany({
+    where: { id: { in: attributeIds } },
+    include: { leaveTypeAllocation: true },
   });
 
-  if (!allocation) {
-    throw new NotFoundException('Leave type allocation not found');
+  if (existingAttributes.length === 0) {
+    throw new NotFoundException('No matching leave attributes found');
   }
 
   return await this.prisma.$transaction(async (tx) => {
-    // 1️⃣ Delete all UsersLeaveRecord linked to leaveAttributes
-    const attributeIds = allocation.leaveAttributes.map((a) => a.id);
+    await tx.usersLeaveRecord.deleteMany({
+      where: { leaveAttributeId: { in: attributeIds } },
+    });
 
-    if (attributeIds.length > 0) {
-      await tx.usersLeaveRecord.deleteMany({
-        where: { leaveAttributeId: { in: attributeIds } },
-      });
-    }
-
-    // 2️⃣ Delete related leaveAttributes
     await tx.leaveAttribute.deleteMany({
-      where: { leaveTypeAllocationId: id },
+      where: { id: { in: attributeIds } },
     });
 
-    // 3️⃣ Delete main allocation
-    return await tx.leaveTypeAllocation.delete({
-      where: { id },
-    });
+    return { message: 'Selected leave attributes deleted successfully' };
   });
 }
+
 
 
   private async validateDateConstraints(leaveAttributes: any[]): Promise<void> {

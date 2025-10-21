@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import { IsOptional, IsString, IsNumber, Min, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QueryLeaveTypeAllocationDto {
@@ -19,10 +19,15 @@ export class QueryLeaveTypeAllocationDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(2025)
+  @Min(2020)
   year?: number;
 
   @IsOptional()
   @IsString()
   companyId?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isActive?: boolean;
 }

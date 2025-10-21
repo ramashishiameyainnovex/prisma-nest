@@ -7,5 +7,6 @@ import { PrismaModule } from '../prisma/prisma.module';
   imports: [PrismaModule],
   controllers: [LeaveTypeAllocationController],
   providers: [LeaveTypeAllocationService],
+  exports: [LeaveTypeAllocationService],
 })
 export class LeaveTypeAllocationModule {}

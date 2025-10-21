@@ -1,24 +1,55 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateLeaveTypeAllocationDto, LeaveAttributeDto } from './create-leave-type-allocation.dto';
-import { IsArray, ValidateNested, IsOptional, IsDate, Min, IsNumber } from 'class-validator';
+import { IsString, IsArray, ValidateNested, IsNotEmpty, IsNumber, Min, IsOptional, IsBoolean, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class UpdateLeaveAttributeDto extends PartialType(LeaveAttributeDto) {
-  @IsOptional()
+export class LeaveAttributeDto {
+  @IsString()
+  @IsNotEmpty()
+  id: string;
+  
+  @IsString()
+  @IsNotEmpty()
+  leaveTypeAllocationId: string;
+
   @IsNumber()
   @Min(2020)
-  year?: number;
+  year: number;
 
-  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  leaveName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  role: string;
+
   @IsNumber()
   @Min(0)
-  allocatedDays?: number;
+  allocatedDays: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsDateString()
+  @IsOptional()
+  createdAt?: string;
+  @IsDateString()
+  @IsOptional()
+  updatedAt?: string;
 }
 
-export class UpdateLeaveTypeAllocationDto extends PartialType(CreateLeaveTypeAllocationDto) {
+export class UpdateLeaveTypeAllocationDto {
+  @IsString()
+  @IsNotEmpty()
+  companyId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  createdById: string;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => UpdateLeaveAttributeDto)
-  leaveAttributes?: LeaveAttributeDto[];
+  @Type(() => LeaveAttributeDto)
+  leaveAttributes?: LeaveAttributeDto[]; 
 }

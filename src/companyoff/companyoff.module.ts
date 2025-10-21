@@ -4,11 +4,10 @@ import { CompanyoffController } from './companyoff.controller';
 import { PrismaModule } from 'src/prisma/prisma.module';
 
 @Module({
-    imports: [PrismaModule],
-
+  imports: [PrismaModule],
   controllers: [CompanyoffController],
   providers: [CompanyoffService],
-    exports: [CompanyoffService],
+  exports: [CompanyoffService],
 
 })
-export class CompanyoffModule {}
+export class CompanyoffModule { }

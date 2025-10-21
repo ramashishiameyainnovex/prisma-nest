@@ -1,4 +1,4 @@
-import { IsString, IsArray, ValidateNested, IsNotEmpty, IsNumber, Min, IsDate, IsOptional } from 'class-validator';
+import { IsString, IsArray, ValidateNested, IsNotEmpty, IsNumber, Min, IsOptional, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class LeaveAttributeDto {
@@ -19,7 +19,7 @@ export class LeaveAttributeDto {
   allocatedDays: number;
 
   @IsOptional()
-  @IsNotEmpty()
+  @IsBoolean()
   isActive?: boolean;
 }
 

@@ -11,9 +11,10 @@ import { ShiftModule } from './shift/shift.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { CompanyoffModule } from './companyoff/companyoff.module';
 import { LeaveTypeAllocationModule } from './leave-type-allocation/leave-type-allocation.module';
+import { LeavesModule } from './leaves/leaves.module';
 
 @Module({
-  imports: [PrismaModule, ArticlesModule, CompanyModule, CompanyUserModule, UserModule, CompanyRoleModule, ShiftModule, AttendanceModule, CompanyoffModule, LeaveTypeAllocationModule],
+  imports: [PrismaModule, ArticlesModule, CompanyModule, CompanyUserModule, UserModule, CompanyRoleModule, ShiftModule, AttendanceModule, CompanyoffModule, LeaveTypeAllocationModule, LeavesModule],
   controllers: [AppController],
   providers: [AppService],
 })

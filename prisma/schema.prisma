@@ -20,14 +20,14 @@ model Company {
   zipCode    String?
   
   // Relations
-  companyRoles CompanyRole[]   @relation("CompaniesRoles")
-  companyUsers CompanyUser[]   @relation("CompanyUsers")
-  shifts       Shift[]         @relation("CompanyShifts")
-  attendances  Attendance[]    @relation("CompanyAttendances")
-  companyOffs  CompanyOff[]    @relation("CompanyOffs")
-  offDays      OffDay[]        @relation("CompanyOffsOffDays")
-  leaveTypeAllocation LeaveTypeAllocation? @relation("CompanyLeaveTypeAllocation")
-  leaves       Leave[]         @relation("CompanyLeaves")
+  companyRoles CompanyRole[]
+  companyUsers CompanyUser[]
+  shifts       Shift[]
+  attendances  Attendance[]
+  companyOffs  CompanyOff[]
+  offDays      OffDay[]
+  leaveTypeAllocation LeaveTypeAllocation?
+  leaves       Leave[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -40,13 +40,13 @@ model CompanyUser {
 
   // Relations
   userId    String
-  user      User    @relation("UserCompanyUser", fields: [userId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   companyId String
-  company   Company @relation("CompanyUsers", fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   // Role assignment
   roleId String?
-  role   CompanyRole? @relation("CompanyUserRole", fields: [roleId], references: [id])
+  role   CompanyRole? @relation(fields: [roleId], references: [id])
 
   firstName  String?
   middleName String?
@@ -57,23 +57,23 @@ model CompanyUser {
   isActive   Boolean           @default(true)
 
   // Relations to Shift
-  createdShifts Shift[]                          @relation("ShiftCreatedBy")
-  shiftAssignments ShiftAttributeAssignment[]    @relation("ShiftAttributeAssignee")
+  createdShifts Shift[]
+  shiftAssignments ShiftAttributeAssignment[]
 
   // Relations to Attendance
-  attendances Attendance[] @relation("CompanyUserAttendances")
+  attendances Attendance[]
 
   // Relations to Off Days
-  createdOffDays OffDay[]    @relation("OffDayCreatedBy")
-  usersOffs      UsersOff[]  @relation("UsersOffAssignee")
+  createdOffDays OffDay[]
+  usersOffs      UsersOff[]
 
   // Relations to Leave System
-   usersLeaveRecords UsersLeaveRecord[] @relation("CompanyUserLeaveRecords")
-  createdLeaveAllocations LeaveTypeAllocation[] @relation("LeaveAllocationCreatedBy")
-  leavesApplied Leave[] @relation("UserLeaves")
+  usersLeaveRecords UsersLeaveRecord[]
+  createdLeaveAllocations LeaveTypeAllocation[]
+  leavesApplied Leave[] @relation("UserAppliedLeaves")
   leavesApproved Leave[] @relation("ApprovedLeaves")
-  comments      Comment[] @relation("UserComments")
-  attachments   Attachment[] @relation("UserAttachments")
+  comments      Comment[]
+  attachments   Attachment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -87,13 +87,13 @@ model User {
   email String @unique
   
   // Relation to CompanyUser
-  companyUsers CompanyUser[] @relation("UserCompanyUser")
+  companyUsers CompanyUser[]
   
   // Relation to Attendance
-  attendances Attendance[] @relation("UserAttendances")
+  attendances Attendance[]
 
   // Relation to Leave System
-  usersLeaveRecords UsersLeaveRecord[] @relation("UserLeaveRecords")
+  usersLeaveRecords UsersLeaveRecord[]
 
   @@map("users")
 }
@@ -105,10 +105,10 @@ model CompanyRole {
 
   // Relations
   companyId String  
-  company   Company @relation("CompaniesRoles", fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   
   // Users with this role
-  companyUsers CompanyUser[] @relation("CompanyUserRole")
+  companyUsers CompanyUser[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -130,9 +130,9 @@ model Shift {
   shiftCreatedBy   String
   
   // Relations
-  company          Company           @relation("CompanyShifts", fields: [companyId], references: [id], onDelete: Cascade)
-  shiftAttributes  ShiftAttribute[]  @relation("ShiftAttributes")
-  createdBy        CompanyUser       @relation("ShiftCreatedBy", fields: [shiftCreatedBy], references: [id], onDelete: Cascade)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shiftAttributes  ShiftAttribute[]
+  createdBy        CompanyUser       @relation(fields: [shiftCreatedBy], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -153,8 +153,8 @@ model ShiftAttribute {
   isActive           Boolean  @default(true)
 
   // Relations
-  shift       Shift                       @relation("ShiftAttributes", fields: [shiftId], references: [id], onDelete: Cascade)
-  assignments ShiftAttributeAssignment[]  @relation("ShiftAttributeAssignments")
+  shift       Shift                       @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  assignments ShiftAttributeAssignment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -168,8 +168,8 @@ model ShiftAttributeAssignment {
   assignedUserId     String  
 
   // Relations
-  shiftAttribute ShiftAttribute @relation("ShiftAttributeAssignments", fields: [shiftAttributeId], references: [id], onDelete: Cascade)
-  assignedUser   CompanyUser    @relation("ShiftAttributeAssignee", fields: [assignedUserId], references: [id], onDelete: Cascade)
+  shiftAttribute ShiftAttribute @relation(fields: [shiftAttributeId], references: [id], onDelete: Cascade)
+  assignedUser   CompanyUser    @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
 
   assignedAt   DateTime @default(now())
   createdAt    DateTime @default(now())
@@ -186,7 +186,7 @@ model Attendance {
   companyUserId String? 
 
   // Punch records
-  userPunches  UserPunch[] @relation("AttendanceUserPunches") 
+  userPunches  UserPunch[]
   punchDate    DateTime
   totalWorkHours Float?    
   totalOvertime  Float?    
@@ -196,9 +196,9 @@ model Attendance {
   updatedAt DateTime @updatedAt
 
   // Relations
-  company     Company     @relation("CompanyAttendances", fields: [companyId], references: [id], onDelete: Cascade)
-  user        User        @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
-  companyUser CompanyUser? @relation("CompanyUserAttendances", fields: [companyUserId], references: [id], onDelete: Cascade)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyUser CompanyUser? @relation(fields: [companyUserId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, userId, punchDate])
   @@map("attendances")
@@ -221,7 +221,7 @@ model UserPunch {
   ipAddress        String?          
 
   // Relations
-  attendance Attendance @relation("AttendanceUserPunches", fields: [attendanceId], references: [id], onDelete: Cascade)
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -252,8 +252,8 @@ model CompanyOff {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  company Company  @relation("CompanyOffs", fields: [companyId], references: [id], onDelete: Cascade)
-  offDays OffDay[] @relation("CompanyOffDays")
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  offDays OffDay[]
 }
 
 model OffDay {
@@ -270,10 +270,10 @@ model OffDay {
   createdById  String
   companyOffId String?
 
-  company    Company     @relation("CompanyOffsOffDays", fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy  CompanyUser @relation("OffDayCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
-  companyOff CompanyOff? @relation("CompanyOffDays", fields: [companyOffId], references: [id], onDelete: Cascade)
-  usersOffs  UsersOff[]  @relation("OffDayUsers")
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy  CompanyUser @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  companyOff CompanyOff? @relation(fields: [companyOffId], references: [id], onDelete: Cascade)
+  usersOffs  UsersOff[]
 }
 
 model UsersOff {
@@ -282,8 +282,8 @@ model UsersOff {
   offDayId String
 
   // Relations
-  user   CompanyUser @relation("UsersOffAssignee", fields: [userId], references: [id], onDelete: Cascade)
-  offDay OffDay      @relation("OffDayUsers", fields: [offDayId], references: [id], onDelete: Cascade)
+  user   CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offDay OffDay      @relation(fields: [offDayId], references: [id], onDelete: Cascade)
 
   @@unique([userId, offDayId])
 }
@@ -295,17 +295,16 @@ model LeaveTypeAllocation {
   companyId String   @unique
   
   // Relations
-  company        Company          @relation("CompanyLeaveTypeAllocation", fields: [companyId], references: [id], onDelete: Cascade)
-  leaveAttributes LeaveAttribute[] @relation("LeaveTypeAllocationAttributes") // Change LeaveAttributes[] to LeaveAttribute[]
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  leaveAttributes LeaveAttribute[]
   
   createdById String
-  createdBy   CompanyUser @relation("LeaveAllocationCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy   CompanyUser @relation(fields: [createdById], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("leave_type_allocations")
-
 }
 
 model LeaveAttribute {
@@ -318,9 +317,9 @@ model LeaveAttribute {
   isActive             Boolean  @default(true)
   
   // Relations
-  leaveTypeAllocation LeaveTypeAllocation @relation("LeaveTypeAllocationAttributes", fields: [leaveTypeAllocationId], references: [id], onDelete: Cascade)
-  usersLeaveRecords   UsersLeaveRecord[]  @relation("LeaveAttributeRecords")
-  leaves              Leave[]             @relation("LeaveAttributeLeaves")
+  leaveTypeAllocation LeaveTypeAllocation @relation(fields: [leaveTypeAllocationId], references: [id], onDelete: Cascade)
+  usersLeaveRecords   UsersLeaveRecord[]
+  leaves              Leave[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -337,24 +336,22 @@ model UsersLeaveRecord {
   usedDays         Int      @default(0)
   remainingDays    Int
   carriedOverDays  Int      @default(0)
-  
-  // Relations
-  user             User               @relation("UserLeaveRecords", fields: [userId], references: [id], onDelete: Cascade)
-  leaveAttribute   LeaveAttribute     @relation("LeaveAttributeRecords", fields: [leaveAttributeId], references: [id], onDelete: Cascade)
-  carryForwardDays CarryForwardDays[]  @relation("LeaveRecordCarryForwards")
-  leaves           Leave[]            @relation("UserLeaveRecordLeaves")
-  companyUser      CompanyUser        @relation("CompanyUserLeaveRecords", fields: [companyUserId], references: [id], onDelete: Cascade)
-
   companyUserId    String
+
+  // Relations
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveAttribute   LeaveAttribute     @relation(fields: [leaveAttributeId], references: [id], onDelete: Cascade)
+  carryForwardDays CarryForwardDays[]
+  leaves           Leave[]
+  companyUser      CompanyUser        @relation(fields: [companyUserId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, leaveAttributeId, year])
-  @@unique([userId, leaveAttributeId]) // Add this line for the composite reference
+  @@unique([userId, leaveAttributeId])
   @@map("users_leave_records")
 }
-
 
 model CarryForwardDays {
   id                 String           @id @default(cuid())
@@ -363,7 +360,7 @@ model CarryForwardDays {
   usersLeaveRecordId String
   
   // Relations
-  usersLeaveRecord UsersLeaveRecord @relation("LeaveRecordCarryForwards", fields: [usersLeaveRecordId], references: [id], onDelete: Cascade)
+  usersLeaveRecord UsersLeaveRecord @relation(fields: [usersLeaveRecordId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -381,21 +378,19 @@ model Leave {
   status      LeaveStatus @default(PENDING)
   reason      String?
   approverId  String?
+  usersLeaveRecordId String?
 
-  comments    Comment[]     @relation("LeaveComments")
-  attachments Attachment[]  @relation("LeaveAttachments")
+  comments    Comment[]
+  attachments Attachment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   approver  CompanyUser? @relation("ApprovedLeaves", fields: [approverId], references: [id])
-  userLeave CompanyUser  @relation("UserLeaves", fields: [userId], references: [id])
-  company   Company      @relation("CompanyLeaves", fields: [companyId], references: [id])
-  leaveType LeaveAttribute @relation("LeaveAttributeLeaves", fields: [leaveTypeId], references: [id])
-  usersLeaveRecord UsersLeaveRecord? @relation("UserLeaveRecordLeaves", fields: [usersLeaveRecordId], references: [id]) // Change this line
-
-  // Add this field for the relation
-  usersLeaveRecordId String?
+  userLeave CompanyUser  @relation("UserAppliedLeaves", fields: [userId], references: [id])
+  company   Company      @relation(fields: [companyId], references: [id])
+  leaveType LeaveAttribute @relation(fields: [leaveTypeId], references: [id])
+  usersLeaveRecord UsersLeaveRecord? @relation(fields: [usersLeaveRecordId], references: [id])
 
   @@map("leaves")
 }
@@ -407,8 +402,8 @@ model Comment {
   comment     String
   commentDate DateTime @default(now())
 
-  user  CompanyUser @relation("UserComments", fields: [userId], references: [id], onDelete: Cascade)
-  leave Leave       @relation("LeaveComments", fields: [leaveId], references: [id], onDelete: Cascade)
+  user  CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leave Leave       @relation(fields: [leaveId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -426,8 +421,8 @@ model Attachment {
   mimeType       String?
   attachmentDate DateTime @default(now())
 
-  user  CompanyUser @relation("UserAttachments", fields: [userId], references: [id], onDelete: Cascade)
-  leave Leave       @relation("LeaveAttachments", fields: [leaveId], references: [id], onDelete: Cascade)
+  user  CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leave Leave       @relation(fields: [leaveId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

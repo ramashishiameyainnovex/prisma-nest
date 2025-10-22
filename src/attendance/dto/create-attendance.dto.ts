@@ -1,81 +1,131 @@
-import { IsString, IsOptional, IsUUID, IsDateString, IsEnum, IsNumber } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { AttendanceStatus, PunchType } from '@prisma/client';
+import { IsString, IsOptional, IsEnum, IsObject, IsDate, IsNumber } from 'class-validator';
+
+export class LocationDto {
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  latitude?: string;
+
+  @IsOptional()
+  @IsString()
+  longitude?: string;
+}
 
 export class CreateAttendanceDto {
-  @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   companyId: string;
 
-  @ApiProperty({ description: 'User ID' })
-  @IsUUID()
+  @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'Company User ID', required: false })
-  @IsOptional()
-  @IsUUID()
-  companyUserId?: string;
-
-  @ApiProperty({ description: 'User Punch ID (for punch out)', required: false })
-  @IsOptional()
-  @IsUUID()
-  userPunchId?: string;
-
-  @ApiProperty({ description: 'Attendance ID (for punch out)', required: false })
-  @IsOptional()
-  @IsUUID()
-  attendanceId?: string;
-
-  @ApiProperty({ description: 'Punch date', example: '2024-01-15' })
-  @IsDateString()
-  punchDate: string;
-
-  @ApiProperty({ description: 'Punch in time', required: false, example: '2024-01-15T09:00:00.000Z' })
-  @IsOptional()
-  @IsDateString()
-  punchIn?: string;
-
-  @ApiProperty({ description: 'Punch out time', required: false, example: '2024-01-15T17:00:00.000Z' })
-  @IsOptional()
-  @IsDateString()
-  punchOut?: string;
-
-  @ApiProperty({ description: 'Punch in location', required: false })
   @IsOptional()
   @IsString()
-  punchInLocation?: string;
+  companyUserId: string;
 
-  @ApiProperty({ description: 'Punch out location', required: false })
   @IsOptional()
-  @IsString()
-  punchOutLocation?: string;
+  @IsDate()
+  punchIn?: Date;
 
-  @ApiProperty({ enum: PunchType, required: true })
-  @IsEnum(PunchType)
-  punchType: PunchType;
+  @IsOptional()
+  @IsDate()
+  punchOut?: Date;
 
-  @ApiProperty({ description: 'Device ID', required: false })
+  @IsOptional()
+  @IsObject()
+  punchInLocation?: LocationDto;
+
+  @IsOptional()
+  @IsObject()
+  punchOutLocation?: LocationDto;
+
+  @IsOptional()
+  @IsEnum(['PRESENT', 'ABSENT', 'ON_LEAVE', 'HALF_DAY', 'LATE', 'EARLY_LEAVE'])
+  status?: string;
+
   @IsOptional()
   @IsString()
   deviceId?: string;
 
-  @ApiProperty({ description: 'IP address', required: false })
   @IsOptional()
   @IsString()
   ipAddress?: string;
 
-  @ApiProperty({ description: 'Remarks', required: false })
   @IsOptional()
   @IsString()
   remarks?: string;
+}
 
-  @ApiProperty({ description: 'Work hours', required: false })
+export class UpdateAttendanceDto {
+  @IsOptional()
+  @IsEnum(['PRESENT', 'ABSENT', 'ON_LEAVE', 'HALF_DAY', 'LATE', 'EARLY_LEAVE'])
+  status?: string;
+
   @IsOptional()
   @IsNumber()
   workHours?: number;
 
-  @ApiProperty({ description: 'Overtime hours', required: false })
   @IsOptional()
   @IsNumber()
   overtime?: number;
+}
+
+export class AttendanceFilterDto {
+  @IsOptional()
+  @IsString()
+  companyId?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsDate()
+  startDate?: Date;
+
+  @IsOptional()
+  @IsDate()
+  endDate?: Date;
+
+  @IsOptional()
+  @IsNumber()
+  page?: number;
+
+  @IsOptional()
+  @IsNumber()
+  limit?: number;
+}
+
+export class UserAttendanceFilterDto {
+  @IsString()
+  companyId: string;
+
+  @IsString()
+  userId: string;
+
+  @IsOptional()
+  @IsDate()
+  date?: Date;
+
+  @IsOptional()
+  @IsDate()
+  startDate?: Date;
+
+  @IsOptional()
+  @IsDate()
+  endDate?: Date;
+}
+
+export class AttendanceSummaryDto {
+  @IsString()
+  userId: string;
+
+  @IsString()
+  companyId: string;
+
+  @IsOptional()
+  @IsString()
+  month?: string;
 }

@@ -1,439 +1,439 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model Company {
-  id         String   @id @default(cuid())
-  name       String
-  phone      String?
-  email      String?
-  address    String?
-  city       String?
-  district   String?
-  state      String?
-  country    String?
-  zipCode    String?
-  
-  // Relations
-  companyRoles CompanyRole[]
-  companyUsers CompanyUser[]
-  shifts       Shift[]
-  attendances  Attendance[]
-  companyOffs  CompanyOff[]
-  offDays      OffDay[]
-  leaveTypeAllocation LeaveTypeAllocation?
-  leaves       Leave[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("companies")
-}
-
-model CompanyUser {
-  id String @id @default(cuid())
-
-  // Relations
-  userId    String
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  // Role assignment
-  roleId String?
-  role   CompanyRole? @relation(fields: [roleId], references: [id])
-
-  firstName  String?
-  middleName String?
-  lastName   String?
-  
-  // Status
-  status     CompanyUserStatus @default(PENDING)
-  isActive   Boolean           @default(true)
-
-  // Relations to Shift
-  createdShifts Shift[]
-  shiftAssignments ShiftAttributeAssignment[]
-
-  // Relations to Attendance
-  attendances Attendance[]
-
-  // Relations to Off Days
-  createdOffDays OffDay[]
-  usersOffs      UsersOff[]
-
-  // Relations to Leave System
-  usersLeaveRecords UsersLeaveRecord[]
-  createdLeaveAllocations LeaveTypeAllocation[]
-  leavesApplied Leave[] @relation("UserAppliedLeaves")
-  leavesApproved Leave[] @relation("ApprovedLeaves")
-  comments      Comment[]
-  attachments   Attachment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, companyId])
-  @@map("company_users")
-}
-
-model User {
-  id    String @id @default(cuid())
-  email String @unique
-  
-  // Relation to CompanyUser
-  companyUsers CompanyUser[]
-  
-  // Relation to Attendance
-  attendances Attendance[]
-
-  // Relation to Leave System
-  usersLeaveRecords UsersLeaveRecord[]
-
-  @@map("users")
-}
-
-model CompanyRole {
-  id          String  @id @default(cuid())
-  name        String
-  description String?
-
-  // Relations
-  companyId String  
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  // Users with this role
-  companyUsers CompanyUser[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, name])
-  @@map("company_roles")
-}
-
-enum CompanyUserStatus {
-  PENDING
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-}
-
-model Shift {
-  id               String            @id @default(cuid())
-  companyId        String
-  shiftCreatedBy   String
-  
-  // Relations
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  shiftAttributes  ShiftAttribute[]
-  createdBy        CompanyUser       @relation(fields: [shiftCreatedBy], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("shifts")
-}
-
-model ShiftAttribute {
-  id                 String   @id @default(cuid())
-  shiftId            String
-  shiftName          String
-  startTime          DateTime
-  endTime            DateTime
-  breakDuration      Int?     
-  gracePeriodMinutes Int?     
-  description        String?
-  color              String?  
-  isActive           Boolean  @default(true)
-
-  // Relations
-  shift       Shift                       @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  assignments ShiftAttributeAssignment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("shift_attributes")
-}
-
-model ShiftAttributeAssignment {
-  id                 String  @id @default(cuid())
-  shiftAttributeId   String
-  assignedUserId     String  
-
-  // Relations
-  shiftAttribute ShiftAttribute @relation(fields: [shiftAttributeId], references: [id], onDelete: Cascade)
-  assignedUser   CompanyUser    @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
-
-  assignedAt   DateTime @default(now())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([shiftAttributeId, assignedUserId])
-  @@map("shift_attribute_assignments")
-}
-
-model Attendance {
-  id           String   @id @default(cuid()) 
-  companyId    String
-  userId       String
-  companyUserId String? 
-
-  // Punch records
-  userPunches  UserPunch[]
-  punchDate    DateTime
-  totalWorkHours Float?    
-  totalOvertime  Float?    
-  finalStatus    AttendanceStatus @default(PRESENT)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  companyUser CompanyUser? @relation(fields: [companyUserId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, userId, punchDate])
-  @@map("attendances")
-}
-
-model UserPunch {
-  id               String           @id @default(cuid()) 
-  attendanceId     String
-  punchIn          DateTime
-  punchInLocation  String?          
-  punchOut         DateTime?
-  punchOutLocation String?
-  workHours        Float?           
-  overtime         Float?          
-  status           AttendanceStatus @default(PRESENT)
-  remarks          String?
-  
-  punchType        PunchType        @default(IN) 
-  deviceId         String?          
-  ipAddress        String?          
-
-  // Relations
-  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("user_punches")
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  ON_LEAVE
-  HALF_DAY
-  LATE
-  EARLY_LEAVE
-}
-
-enum PunchType {
-  IN
-  OUT
-}
-
-model CompanyOff {
-  id          String   @id @default(cuid())
-  companyId   String
-  weekDay     Int[]
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  offDays OffDay[]
-}
-
-model OffDay {
-  id           String     @id @default(cuid())
-  name         String
-  holidayType  String
-  fromDate     DateTime
-  toDate       DateTime
-  startTime    String
-  endTime      String
-  description  String
-  
-  companyId    String
-  createdById  String
-  companyOffId String?
-
-  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy  CompanyUser @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  companyOff CompanyOff? @relation(fields: [companyOffId], references: [id], onDelete: Cascade)
-  usersOffs  UsersOff[]
-}
-
-model UsersOff {
-  id       String @id @default(cuid())
-  userId   String
-  offDayId String
-
-  // Relations
-  user   CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offDay OffDay      @relation(fields: [offDayId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, offDayId])
-}
-
-// Leave System Models
-
-model LeaveTypeAllocation {
-  id        String   @id @default(cuid())
-  companyId String   @unique
-  
-  // Relations
-  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  leaveAttributes LeaveAttribute[]
-  
-  createdById String
-  createdBy   CompanyUser @relation(fields: [createdById], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("leave_type_allocations")
-}
-
-model LeaveAttribute {
-  id                   String   @id @default(cuid())
-  leaveTypeAllocationId String
-  year                 Int
-  leaveName            String
-  role                 String
-  allocatedDays        Int
-  isActive             Boolean  @default(true)
-  
-  // Relations
-  leaveTypeAllocation LeaveTypeAllocation @relation(fields: [leaveTypeAllocationId], references: [id], onDelete: Cascade)
-  usersLeaveRecords   UsersLeaveRecord[]
-  leaves              Leave[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([leaveTypeAllocationId, year, leaveName, role])
-  @@map("leave_attributes")
-}
-
-model UsersLeaveRecord {
-  id               String   @id @default(cuid())
-  userId           String
-  leaveAttributeId String
-  year             Int
-  usedDays         Int      @default(0)
-  remainingDays    Int
-  carriedOverDays  Int      @default(0)
-  companyUserId    String
-
-  // Relations
-  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leaveAttribute   LeaveAttribute     @relation(fields: [leaveAttributeId], references: [id], onDelete: Cascade)
-  carryForwardDays CarryForwardDays[]
-  leaves           Leave[]
-  companyUser      CompanyUser        @relation(fields: [companyUserId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, leaveAttributeId, year])
-  @@unique([userId, leaveAttributeId])
-  @@map("users_leave_records")
-}
-
-model CarryForwardDays {
-  id                 String           @id @default(cuid())
-  days               Int
-  year               Int
-  usersLeaveRecordId String
-  
-  // Relations
-  usersLeaveRecord UsersLeaveRecord @relation(fields: [usersLeaveRecordId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("carry_forward_days")
-}
-
-model Leave {
-  id          String      @id @default(cuid())
-  userId      String
-  companyId   String
-  leaveTypeId String
-  startDate   DateTime
-  endDate     DateTime
-  status      LeaveStatus @default(PENDING)
-  reason      String?
-  approverId  String?
-  usersLeaveRecordId String?
-
-  comments    Comment[]
-  attachments Attachment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  approver  CompanyUser? @relation("ApprovedLeaves", fields: [approverId], references: [id])
-  userLeave CompanyUser  @relation("UserAppliedLeaves", fields: [userId], references: [id])
-  company   Company      @relation(fields: [companyId], references: [id])
-  leaveType LeaveAttribute @relation(fields: [leaveTypeId], references: [id])
-  usersLeaveRecord UsersLeaveRecord? @relation(fields: [usersLeaveRecordId], references: [id])
-
-  @@map("leaves")
-}
-
-model Comment {
-  id          String   @id @default(uuid())
-  userId      String
-  leaveId     String
-  comment     String
-  commentDate DateTime @default(now())
-
-  user  CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leave Leave       @relation(fields: [leaveId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("comments")
-}
-
-model Attachment {
-  id             String   @id @default(uuid())
-  userId         String
-  leaveId        String
-  attachment     String
-  fileName       String?
-  fileSize       Int?
-  mimeType       String?
-  attachmentDate DateTime @default(now())
-
-  user  CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leave Leave       @relation(fields: [leaveId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("attachments")
-}
-
-enum LeaveStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-  IN_REVIEW
-}
+  generator client {
+    provider = "prisma-client-js"
+  }
+
+  datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+  }
+
+  model Company {
+    id         String   @id @default(cuid())
+    name       String
+    phone      String?
+    email      String?
+    address    String?
+    city       String?
+    district   String?
+    state      String?
+    country    String?
+    zipCode    String?
+    
+    // Relations
+    companyRoles CompanyRole[]
+    companyUsers CompanyUser[]
+    shifts       Shift[]
+    attendances  Attendance[]
+    companyOffs  CompanyOff[]
+    offDays      OffDay[]
+    leaveTypeAllocation LeaveTypeAllocation?
+    leaves       Leave[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("companies")
+  }
+
+  model CompanyUser {
+    id String @id @default(cuid())
+
+    // Relations
+    userId    String
+    user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    companyId String
+    company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+    // Role assignment
+    roleId String?
+    role   CompanyRole? @relation(fields: [roleId], references: [id])
+
+    firstName  String?
+    middleName String?
+    lastName   String?
+    
+    // Status
+    status     CompanyUserStatus @default(PENDING)
+    isActive   Boolean           @default(true)
+
+    // Relations to Shift
+    createdShifts Shift[]
+    shiftAssignments ShiftAttributeAssignment[]
+
+    // Relations to Attendance
+    attendances Attendance[]
+
+    // Relations to Off Days
+    createdOffDays OffDay[]
+    usersOffs      UsersOff[]
+
+    // Relations to Leave System
+    usersLeaveRecords UsersLeaveRecord[]
+    createdLeaveAllocations LeaveTypeAllocation[]
+    leavesApplied Leave[] @relation("UserAppliedLeaves")
+    leavesApproved Leave[] @relation("ApprovedLeaves")
+    comments      Comment[]
+    attachments   Attachment[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([userId, companyId])
+    @@map("company_users")
+  }
+
+  model User {
+    id    String @id @default(cuid())
+    email String @unique
+    
+    // Relation to CompanyUser
+    companyUsers CompanyUser[]
+    
+    // Relation to Attendance
+    attendances Attendance[]
+
+    // Relation to Leave System
+    usersLeaveRecords UsersLeaveRecord[]
+
+    @@map("users")
+  }
+
+  model CompanyRole {
+    id          String  @id @default(cuid())
+    name        String
+    description String?
+
+    // Relations
+    companyId String  
+    company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    
+    // Users with this role
+    companyUsers CompanyUser[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([companyId, name])
+    @@map("company_roles")
+  }
+
+  enum CompanyUserStatus {
+    PENDING
+    ACTIVE
+    INACTIVE
+    SUSPENDED
+  }
+
+  model Shift {
+    id               String            @id @default(cuid())
+    companyId        String
+    shiftCreatedBy   String
+    
+    // Relations
+    company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    shiftAttributes  ShiftAttribute[]
+    createdBy        CompanyUser       @relation(fields: [shiftCreatedBy], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("shifts")
+  }
+
+  model ShiftAttribute {
+    id                 String   @id @default(cuid())
+    shiftId            String
+    shiftName          String
+    startTime          DateTime
+    endTime            DateTime
+    breakDuration      Int?     
+    gracePeriodMinutes Int?     
+    description        String?
+    color              String?  
+    isActive           Boolean  @default(true)
+
+    // Relations
+    shift       Shift                       @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+    assignments ShiftAttributeAssignment[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("shift_attributes")
+  }
+
+  model ShiftAttributeAssignment {
+    id                 String  @id @default(cuid())
+    shiftAttributeId   String
+    assignedUserId     String  
+
+    // Relations
+    shiftAttribute ShiftAttribute @relation(fields: [shiftAttributeId], references: [id], onDelete: Cascade)
+    assignedUser   CompanyUser    @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
+
+    assignedAt   DateTime @default(now())
+    createdAt    DateTime @default(now())
+    updatedAt    DateTime @updatedAt
+
+    @@unique([shiftAttributeId, assignedUserId])
+    @@map("shift_attribute_assignments")
+  }
+
+  model Attendance {
+    id           String   @id @default(cuid()) 
+    companyId    String
+    userId       String
+    companyUserId String? 
+
+    // Punch records
+    userPunches  UserPunch[]
+    punchDate    DateTime
+    totalWorkHours Float?    
+    totalOvertime  Float?    
+    finalStatus    AttendanceStatus @default(PRESENT)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // Relations
+    company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+    companyUser CompanyUser? @relation(fields: [companyUserId], references: [id], onDelete: Cascade)
+
+    @@unique([companyId, userId, punchDate])
+    @@map("attendances")
+  }
+
+  model UserPunch {
+    id               String           @id @default(cuid()) 
+    attendanceId     String
+    punchIn          DateTime
+    punchInLocation  Json?          
+    punchOut         DateTime?
+    punchOutLocation Json?
+    workHours        Float?           
+    overtime         Float?          
+    status           String @default("PRESENT")
+    remarks          String?
+    
+    punchType        PunchType        @default(IN) 
+    deviceId         String?          
+    ipAddress        String?          
+
+    // Relations
+    attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("user_punches")
+  }
+
+  enum AttendanceStatus {
+    PRESENT
+    ABSENT
+    ON_LEAVE
+    HALF_DAY
+    LATE
+    EARLY_LEAVE
+  }
+
+  enum PunchType {
+    IN
+    OUT
+  }
+
+  model CompanyOff {
+    id          String   @id @default(cuid())
+    companyId   String
+    weekDay     Int[]
+    description String?
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    // Relations
+    company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    offDays OffDay[]
+  }
+
+  model OffDay {
+    id           String     @id @default(cuid())
+    name         String
+    holidayType  String
+    fromDate     DateTime
+    toDate       DateTime
+    startTime    String
+    endTime      String
+    description  String
+    
+    companyId    String
+    createdById  String
+    companyOffId String?
+
+    company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    createdBy  CompanyUser @relation(fields: [createdById], references: [id], onDelete: Cascade)
+    companyOff CompanyOff? @relation(fields: [companyOffId], references: [id], onDelete: Cascade)
+    usersOffs  UsersOff[]
+  }
+
+  model UsersOff {
+    id       String @id @default(cuid())
+    userId   String
+    offDayId String
+
+    // Relations
+    user   CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+    offDay OffDay      @relation(fields: [offDayId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, offDayId])
+  }
+
+  // Leave System Models
+
+  model LeaveTypeAllocation {
+    id        String   @id @default(cuid())
+    companyId String   @unique
+    
+    // Relations
+    company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    leaveAttributes LeaveAttribute[]
+    
+    createdById String
+    createdBy   CompanyUser @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("leave_type_allocations")
+  }
+
+  model LeaveAttribute {
+    id                   String   @id @default(cuid())
+    leaveTypeAllocationId String
+    year                 Int
+    leaveName            String
+    role                 String
+    allocatedDays        Int
+    isActive             Boolean  @default(true)
+    
+    // Relations
+    leaveTypeAllocation LeaveTypeAllocation @relation(fields: [leaveTypeAllocationId], references: [id], onDelete: Cascade)
+    usersLeaveRecords   UsersLeaveRecord[]
+    leaves              Leave[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([leaveTypeAllocationId, year, leaveName, role])
+    @@map("leave_attributes")
+  }
+
+  model UsersLeaveRecord {
+    id               String   @id @default(cuid())
+    userId           String
+    leaveAttributeId String
+    year             Int
+    usedDays         Int      @default(0)
+    remainingDays    Int
+    carriedOverDays  Int      @default(0)
+    companyUserId    String
+
+    // Relations
+    user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+    leaveAttribute   LeaveAttribute     @relation(fields: [leaveAttributeId], references: [id], onDelete: Cascade)
+    carryForwardDays CarryForwardDays[]
+    leaves           Leave[]
+    companyUser      CompanyUser        @relation(fields: [companyUserId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([userId, leaveAttributeId, year])
+    @@unique([userId, leaveAttributeId])
+    @@map("users_leave_records")
+  }
+
+  model CarryForwardDays {
+    id                 String           @id @default(cuid())
+    days               Int
+    year               Int
+    usersLeaveRecordId String
+    
+    // Relations
+    usersLeaveRecord UsersLeaveRecord @relation(fields: [usersLeaveRecordId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("carry_forward_days")
+  }
+
+  model Leave {
+    id          String      @id @default(cuid())
+    userId      String
+    companyId   String
+    leaveTypeId String
+    startDate   DateTime
+    endDate     DateTime
+    status      LeaveStatus @default(PENDING)
+    reason      String?
+    approverId  String?
+    usersLeaveRecordId String?
+
+    comments    Comment[]
+    attachments Attachment[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    approver  CompanyUser? @relation("ApprovedLeaves", fields: [approverId], references: [id])
+    userLeave CompanyUser  @relation("UserAppliedLeaves", fields: [userId], references: [id])
+    company   Company      @relation(fields: [companyId], references: [id])
+    leaveType LeaveAttribute @relation(fields: [leaveTypeId], references: [id])
+    usersLeaveRecord UsersLeaveRecord? @relation(fields: [usersLeaveRecordId], references: [id])
+
+    @@map("leaves")
+  }
+
+  model Comment {
+    id          String   @id @default(uuid())
+    userId      String
+    leaveId     String
+    comment     String
+    commentDate DateTime @default(now())
+
+    user  CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+    leave Leave       @relation(fields: [leaveId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("comments")
+  }
+
+  model Attachment {
+    id             String   @id @default(uuid())
+    userId         String
+    leaveId        String
+    attachment     String
+    fileName       String?
+    fileSize       Int?
+    mimeType       String?
+    attachmentDate DateTime @default(now())
+
+    user  CompanyUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+    leave Leave       @relation(fields: [leaveId], references: [id], onDelete: Cascade)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@map("attachments")
+  }
+
+  enum LeaveStatus {
+    PENDING
+    APPROVED
+    REJECTED
+    CANCELLED
+    IN_REVIEW
+  }

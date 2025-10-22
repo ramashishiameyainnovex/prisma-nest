@@ -2,100 +2,103 @@ import {
   Controller, 
   Get, 
   Post, 
-  Body, 
-  Patch, 
-  Param, 
+  Put, 
   Delete, 
+  Body, 
+  Param, 
+  Query, 
   ParseUUIDPipe,
-  HttpCode,
-  HttpStatus,
-  Query
+  BadRequestException
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
-import { CreateAttendanceDto } from './dto/create-attendance.dto';
-import { UpdateAttendanceDto } from './dto/update-attendance.dto';
-import { FilterAttendanceDto } from './dto/filter-attendance.dto';
+import { 
+  CreateAttendanceDto, 
+  UpdateAttendanceDto, 
+  AttendanceFilterDto, 
+  UserAttendanceFilterDto, 
+  AttendanceSummaryDto 
+} from './dto/create-attendance.dto';
 
-@ApiTags('attendances')
-@Controller('attendances')
+@Controller('attendance')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new attendance record or punch in/out' })
-  @ApiResponse({ status: 201, description: 'Attendance created successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request - invalid data' })
-  @ApiResponse({ status: 404, description: 'Company or user not found' })
-  @ApiResponse({ status: 409, description: 'User is already punched in' })
-  async create(@Body() createAttendanceDto: CreateAttendanceDto) {
-    return await this.attendanceService.create(createAttendanceDto);
+  @Post('punch-in')
+  async punchIn(@Body() createAttendanceDto: CreateAttendanceDto) {
+    try {
+      return await this.attendanceService.PunchIn(createAttendanceDto);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Post('punch-out')
+  async punchOut(@Body() createAttendanceDto: CreateAttendanceDto) {
+    try {
+      return await this.attendanceService.PunchOut(createAttendanceDto);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all attendances with filters' })
-  @ApiResponse({ status: 200, description: 'Attendances retrieved successfully' })
-  async findAll(@Query() filterAttendanceDto: FilterAttendanceDto) {
-    return await this.attendanceService.findAll(filterAttendanceDto);
+  async findAll(@Query() filter: AttendanceFilterDto) {
+    try {
+      return await this.attendanceService.findAll(filter);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Get('user')
+  async findUserAttendance(@Query() filter: UserAttendanceFilterDto) {
+    try {
+      return await this.attendanceService.findUserAttendance(filter);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Get('summary')
+  async getUserAttendanceSummary(@Query() filter: AttendanceSummaryDto) {
+    try {
+      return await this.attendanceService.getUserAttendanceSummary(
+        filter.userId, 
+        filter.companyId, 
+        filter.month
+      );
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get an attendance by ID' })
-  @ApiParam({ name: 'id', description: 'Attendance ID' })
-  @ApiResponse({ status: 200, description: 'Attendance retrieved successfully' })
-  @ApiResponse({ status: 404, description: 'Attendance not found' })
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return await this.attendanceService.findOne(id);
+    try {
+      return await this.attendanceService.findOne(id);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
   }
 
-  @Patch(':id')
-  @ApiOperation({ summary: 'Update an attendance' })
-  @ApiParam({ name: 'id', description: 'Attendance ID' })
-  @ApiResponse({ status: 200, description: 'Attendance updated successfully' })
-  @ApiResponse({ status: 404, description: 'Attendance not found' })
+  @Put(':id')
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateAttendanceDto: UpdateAttendanceDto,
+    @Body() updateAttendanceDto: UpdateAttendanceDto
   ) {
-    return await this.attendanceService.update(id, updateAttendanceDto);
+    try {
+      return await this.attendanceService.update(id, updateAttendanceDto);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete an attendance' })
-  @ApiParam({ name: 'id', description: 'Attendance ID' })
-  @ApiResponse({ status: 204, description: 'Attendance deleted successfully' })
-  @ApiResponse({ status: 404, description: 'Attendance not found' })
   async remove(@Param('id', ParseUUIDPipe) id: string) {
-    return await this.attendanceService.remove(id);
-  }
-
-  @Get('status/:userId/:companyId')
-  @ApiOperation({ summary: 'Get user current punch status' })
-  @ApiParam({ name: 'userId', description: 'User ID' })
-  @ApiParam({ name: 'companyId', description: 'Company ID' })
-  @ApiResponse({ status: 200, description: 'User status retrieved successfully' })
-  async getUserCurrentStatus(
-    @Param('userId', ParseUUIDPipe) userId: string,
-    @Param('companyId', ParseUUIDPipe) companyId: string,
-  ) {
-    return await this.attendanceService.getUserCurrentStatus(userId, companyId);
-  }
-
-  @Get('summary/:userId/:companyId')
-  @ApiOperation({ summary: 'Get user attendance summary' })
-  @ApiParam({ name: 'userId', description: 'User ID' })
-  @ApiParam({ name: 'companyId', description: 'Company ID' })
-  @ApiQuery({ name: 'startDate', description: 'Start date (YYYY-MM-DD)', required: true })
-  @ApiQuery({ name: 'endDate', description: 'End date (YYYY-MM-DD)', required: true })
-  @ApiResponse({ status: 200, description: 'Attendance summary retrieved successfully' })
-  async getAttendanceSummary(
-    @Param('userId', ParseUUIDPipe) userId: string,
-    @Param('companyId', ParseUUIDPipe) companyId: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-  ) {
-    return await this.attendanceService.getUserAttendanceSummary(userId, companyId, startDate, endDate);
+    try {
+      return await this.attendanceService.remove(id);
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
   }
 }

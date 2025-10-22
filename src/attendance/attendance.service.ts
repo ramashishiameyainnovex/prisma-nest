@@ -1,476 +1,328 @@
-import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateAttendanceDto } from './dto/create-attendance.dto';
-import { UpdateAttendanceDto } from './dto/update-attendance.dto';
-import { FilterAttendanceDto } from './dto/filter-attendance.dto';
-import { AttendanceStatus, PunchType } from '@prisma/client';
-import moment from 'moment';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { CreateAttendanceDto, UpdateAttendanceDto } from './dto/create-attendance.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class AttendanceService {
   constructor(private prisma: PrismaService) { }
 
-  async create(createAttendanceDto: CreateAttendanceDto) {
+
+  async PunchIn(createAttendanceDto: CreateAttendanceDto) {
     try {
-      // Check if company exists
-      const company = await this.prisma.company.findUnique({
-        where: { id: createAttendanceDto.companyId },
-      });
-
-      if (!company) {
-        throw new NotFoundException('Company not found');
+      // Validate required fields
+      if (!createAttendanceDto.companyId || !createAttendanceDto.userId) {
+        throw new BadRequestException('Company ID and User ID are required');
       }
 
-      // Check if user exists
-      const user = await this.prisma.user.findUnique({
-        where: { id: createAttendanceDto.userId },
-      });
-
-      if (!user) {
-        throw new NotFoundException('User not found');
+      // Check user shift
+      const shiftCheck = await this.checkUserShift(createAttendanceDto.companyUserId, createAttendanceDto.companyId);
+      if (!shiftCheck.isInShift) {
+        throw new BadRequestException(`Cannot punch in: ${shiftCheck.message}`);
       }
 
-      // Check if company user exists and belongs to the same company
-      if (createAttendanceDto.companyUserId) {
-        const companyUser = await this.prisma.companyUser.findUnique({
-          where: { id: createAttendanceDto.companyUserId },
-        });
+      const punchInTime = createAttendanceDto.punchIn ? new Date(createAttendanceDto.punchIn) : new Date();
+      const punchDate = new Date(punchInTime.toISOString().split('T')[0]);
 
-        if (!companyUser) {
-          throw new NotFoundException('Company user not found');
-        }
-
-        if (companyUser.companyId !== createAttendanceDto.companyId || companyUser.userId !== createAttendanceDto.userId) {
-          throw new BadRequestException('Company user does not match the specified company and user');
-        }
-      }
-
-      const punchDate = new Date(createAttendanceDto.punchDate);
-      const dateOnly = new Date(punchDate.getFullYear(), punchDate.getMonth(), punchDate.getDate());
-
-      // Handle PUNCH OUT with existing userPunchId and attendanceId
-      if (createAttendanceDto.punchType === PunchType.OUT && createAttendanceDto.userPunchId && createAttendanceDto.attendanceId) {
-        return await this.handlePunchOutUpdate(createAttendanceDto);
-      }
-
-      // Handle PUNCH IN or PUNCH OUT without specific IDs (create new)
-      return await this.handleNewPunch(createAttendanceDto, dateOnly);
-    } catch (error) {
-      console.error('Error creating attendance:', error);
-      if (error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Failed to create attendance');
-    }
-  }
-
-private async handlePunchOutUpdate(createAttendanceDto: CreateAttendanceDto) {
-  const result = await this.prisma.$transaction(async (prisma) => {
-    // Verify the user punch exists and belongs to the correct user/attendance
-    const existingUserPunch = await prisma.userPunch.findFirst({
-      where: {
-        id: createAttendanceDto.userPunchId,
-        attendanceId: createAttendanceDto.attendanceId,
-        attendance: {
-          userId: createAttendanceDto.userId,
-          companyId: createAttendanceDto.companyId,
-        },
-      },
-      include: {
-        attendance: true,
-      },
-    });
-
-    if (!existingUserPunch) {
-      throw new NotFoundException('User punch record not found or does not match the provided details');
-    }
-
-    // Verify it's a punch in record that needs punch out
-    if (existingUserPunch.punchType !== PunchType.IN) {
-      throw new BadRequestException('Cannot punch out on a non-punch in record');
-    }
-
-    if (existingUserPunch.punchOut) {
-      throw new BadRequestException('This punch in record already has a punch out time');
-    }
-
-    // Calculate work hours and overtime
-    if (!createAttendanceDto.punchOut) {
-      throw new BadRequestException('Punch out time is required');
-    }
-
-    const punchOutTime = new Date(createAttendanceDto.punchOut);
-    const punchInTime = new Date(existingUserPunch.punchIn);
-
-    // Use companyUserId for shift calculation, fallback to finding companyUserId if not provided
-    let companyUserId = createAttendanceDto.companyUserId;
-    if (!companyUserId) {
-      const companyUser = await prisma.companyUser.findFirst({
+      // Find or create attendance record for the day
+      let attendance = await this.prisma.attendance.findFirst({
         where: {
+          companyId: createAttendanceDto.companyId,
           userId: createAttendanceDto.userId,
-          companyId: createAttendanceDto.companyId
-        }
+          punchDate: punchDate,
+        },
       });
-      companyUserId = companyUser?.id;
-    }
 
-    const { workedHours, overtime } = await this.calculateWorkedAndOvertime(
-      punchInTime, 
-      punchOutTime, 
-      companyUserId
-    );
-
-    // Update the existing punch in record with punch out details
-    await prisma.userPunch.update({
-      where: { id: createAttendanceDto.userPunchId },
-      data: {
-        punchOut: punchOutTime,
-        punchOutLocation: createAttendanceDto.punchOutLocation,
-        workHours: workedHours,
-        overtime: overtime,
-        punchType: PunchType.OUT,
-        remarks: createAttendanceDto.remarks || existingUserPunch.remarks,
-        deviceId: createAttendanceDto.deviceId || existingUserPunch.deviceId,
-        ipAddress: createAttendanceDto.ipAddress || existingUserPunch.ipAddress,
-      },
-    });
-
-    // Update total work hours for the day
-    if (!createAttendanceDto.attendanceId) {
-      throw new BadRequestException('Attendance ID is required to update daily work hours');
-    }
-    await this.updateDailyWorkHours(createAttendanceDto.attendanceId);
-
-    return prisma.attendance.findUnique({
-      where: { id: createAttendanceDto.attendanceId },
-      include: {
-        company: { select: { id: true, name: true } },
-        user: { select: { id: true, email: true } },
-        companyUser: {
-          include: {
-            user: { select: { id: true, email: true } },
-          },
-        },
-        userPunches: {
-          orderBy: { punchIn: 'asc' },
-        },
-      },
-    });
-  });
-
-  return {
-    message: 'Punch out recorded successfully',
-    data: result,
-  };
-}
-
-  private async handleNewPunch(createAttendanceDto: CreateAttendanceDto, dateOnly: Date) {
-    // Check if attendance already exists for this user on this date
-    const existingAttendance = await this.prisma.attendance.findFirst({
-      where: {
-        companyId: createAttendanceDto.companyId,
-        userId: createAttendanceDto.userId,
-        punchDate: dateOnly,
-      },
-      include: {
-        userPunches: {
-          orderBy: { punchIn: 'desc' },
-        },
-      },
-    });
-
-    if (existingAttendance && createAttendanceDto.punchType === PunchType.IN) {
-      // Check if user is already punched in
-      const existingOpenPunch = existingAttendance.userPunches.find(
-        punch => punch.punchType === PunchType.IN && !punch.punchOut
-      );
-
-      if (existingOpenPunch) {
-        throw new ConflictException('User is already punched in. Please punch out first.');
-      }
-    }
-
-    if (existingAttendance && createAttendanceDto.punchType === PunchType.OUT) {
-      // Find the last punch in without punch out
-      const lastPunchIn = existingAttendance.userPunches.find(
-        punch => punch.punchType === PunchType.IN && !punch.punchOut
-      );
-
-      if (!lastPunchIn) {
-        throw new BadRequestException('No active punch in found. Please punch in first.');
-      }
-
-      // Use the existing punch in record for punch out
-      createAttendanceDto.userPunchId = lastPunchIn.id;
-      createAttendanceDto.attendanceId = existingAttendance.id;
-      return await this.handlePunchOutUpdate(createAttendanceDto);
-    }
-
-    const result = await this.prisma.$transaction(async (prisma) => {
-      let attendance: any = existingAttendance;
-
-      // If no attendance exists, create one
+      // If no attendance record exists for today, create one
       if (!attendance) {
-        attendance = await prisma.attendance.create({
+        attendance = await this.prisma.attendance.create({
           data: {
             companyId: createAttendanceDto.companyId,
             userId: createAttendanceDto.userId,
             companyUserId: createAttendanceDto.companyUserId,
-            punchDate: dateOnly,
-            finalStatus: AttendanceStatus.PRESENT,
-            totalWorkHours: 0,
-            totalOvertime: 0,
+            punchDate: punchDate,
+            finalStatus: 'PRESENT',
           },
         });
       }
 
-      if (createAttendanceDto.punchType === PunchType.IN) {
-        // Create new punch in record
-        if (!createAttendanceDto.punchIn) {
-          throw new BadRequestException('Punch in time is required');
-        }
-        await prisma.userPunch.create({
-          data: {
-            attendanceId: attendance.id,
-            punchIn: new Date(createAttendanceDto.punchIn),
-            punchInLocation: createAttendanceDto.punchInLocation,
-            punchType: PunchType.IN,
-            status: AttendanceStatus.PRESENT,
-            deviceId: createAttendanceDto.deviceId,
-            ipAddress: createAttendanceDto.ipAddress,
-            remarks: createAttendanceDto.remarks,
-          },
-        });
-      }
-
-      return prisma.attendance.findUnique({
-        where: { id: attendance.id },
-        include: {
-          company: { select: { id: true, name: true } },
-          user: { select: { id: true, email: true } },
-          companyUser: {
-            include: {
-              user: { select: { id: true, email: true } },
-            },
-          },
-          userPunches: {
-            orderBy: { punchIn: 'asc' },
-          },
+      // Check if user already has an active punch-in
+      const activePunch = await this.prisma.userPunch.findFirst({
+        where: {
+          attendanceId: attendance.id,
+          punchOut: null,
         },
       });
-    });
 
-    const message = createAttendanceDto.punchType === PunchType.IN
-      ? 'Punch in recorded successfully'
-      : 'Punch out recorded successfully';
+      if (activePunch) {
+        throw new BadRequestException('You already have an active punch-in. Please punch out first.');
+      }
 
-    return {
-      message,
-      data: result,
-    };
+      // Convert location object to JSON string
+      const punchInLocationJson = createAttendanceDto.punchInLocation
+        ? JSON.stringify(createAttendanceDto.punchInLocation)
+        : null;
+
+      // Create user punch record
+      const userPunch = await this.prisma.userPunch.create({
+        data: {
+          attendanceId: attendance.id,
+          punchIn: punchInTime,
+          punchInLocation: punchInLocationJson as any,
+          punchType: 'IN',
+          status: createAttendanceDto.status || 'PRESENT',
+          deviceId: createAttendanceDto.deviceId,
+          ipAddress: createAttendanceDto.ipAddress,
+          remarks: createAttendanceDto.remarks,
+        },
+      });
+
+      return {
+        attendance,
+        userPunch: {
+          ...userPunch,
+          punchInLocation: createAttendanceDto.punchInLocation, // Return as object
+        },
+        message: 'Punch In successful!'
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
   }
 
-  
-  private async calculateWorkingHours(userId?: string) {
-    const userShift = await this.prisma.shiftAttributeAssignment.findMany({
-      where: {
-        assignedUserId: userId, // This should be a CompanyUser ID
-      },
-      include: {
-        shiftAttribute: {
-          include: {
-            shift: true
+  async PunchOut(createAttendanceDto: CreateAttendanceDto) {
+    try {
+      // Validate required fields
+      if (!createAttendanceDto.companyId || !createAttendanceDto.userId) {
+        throw new BadRequestException('Company ID and User ID are required');
+      }
+
+      const punchOutTime = createAttendanceDto.punchOut ? new Date(createAttendanceDto.punchOut) : new Date();
+      const punchDate = new Date(punchOutTime.toISOString().split('T')[0]);
+
+      // Find today's attendance record
+      const attendance = await this.prisma.attendance.findFirst({
+        where: {
+          companyId: createAttendanceDto.companyId,
+          companyUserId: createAttendanceDto.companyUserId,
+          punchDate: punchDate,
+        },
+        include: {
+          userPunches: {
+            where: {
+              punchOut: null,
+            },
+            orderBy: { punchIn: 'desc' }
           }
         }
+      });
+      console.log('Attendance fetched for Punch Out:', attendance, punchDate);
+      if (!attendance || attendance.userPunches.length === 0) {
+        throw new NotFoundException('No active punch-in found for this user today!');
       }
-    });
 
-    if (!userShift || userShift.length === 0) {
-      throw new Error('No shift assignments found for this user');
-    }
+      const activePunch = attendance.userPunches[0];
+      const punchInTime = activePunch.punchIn;
 
-    // Calculate working hours for each shift assignment
-    const workingHours = userShift.map(assignment => {
-      const shiftAttribute = assignment.shiftAttribute;
+      // Calculate work hours
+      const diffMs = punchOutTime.getTime() - punchInTime.getTime();
+      const totalHours = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
 
-      // Calculate working hours using moment.js
-      const startTime = moment(shiftAttribute.startTime);
-      const endTime = moment(shiftAttribute.endTime);
+      // Check user status for overtime calculation
+      const userStatus = await this.checkUserStatus(createAttendanceDto.companyId, createAttendanceDto.userId);
 
-      // Calculate total working hours in hours
-      const totalWorkingHours = endTime.diff(startTime, 'hours', true);
+      // Calculate work hours and overtime
+      const { workHours, overtime } = this.calculateWorkHours(totalHours, userStatus);
 
-      // Subtract break duration if exists
-      const breakHours = shiftAttribute.breakDuration ? shiftAttribute.breakDuration / 60 : 0;
-      const netWorkingHours = totalWorkingHours - breakHours;
+      // Convert location object to JSON string
+      const punchOutLocationJson = createAttendanceDto.punchOutLocation
+        ? JSON.stringify(createAttendanceDto.punchOutLocation)
+        : null;
 
-      console.log("new working hours", netWorkingHours);
-      return netWorkingHours;
-    });
-
-    return workingHours;
-  }
-private async updateDailyWorkHours(attendanceId: string) {
-  const attendance = await this.prisma.attendance.findUnique({
-    where: { id: attendanceId },
-    include: {
-      userPunches: {
-        where: {
-          punchOut: { not: null }
+      // Update the user punch record
+      const updatedPunch = await this.prisma.userPunch.update({
+        where: { id: activePunch.id },
+        data: {
+          punchOut: punchOutTime,
+          punchOutLocation: punchOutLocationJson as any,
+          workHours: workHours,
+          overtime: overtime,
+          punchType: 'OUT',
+          status: createAttendanceDto.status || activePunch.status,
+          remarks: createAttendanceDto.remarks || activePunch.remarks,
+          updatedAt: new Date(),
         }
-      }
-    }
-  });
+      });
 
-  if (!attendance) return;
+      // Recalculate totals for all punches today
+      await this.recalculateAttendanceTotals(attendance.id);
 
-  // Calculate total work hours and overtime for the day
-  const dailyTotals = attendance.userPunches.reduce((totals, punch) => {
-    return {
-      totalWorkHours: totals.totalWorkHours + (punch.workHours || 0),
-      totalOvertime: totals.totalOvertime + (punch.overtime || 0)
-    };
-  }, { totalWorkHours: 0, totalOvertime: 0 });
+      // Get updated attendance with all punches
+      const updatedAttendance: any = await this.prisma.attendance.findUnique({
+        where: { id: attendance.id },
+        include: {
+          userPunches: {
+            orderBy: { punchIn: 'asc' }
+          },
+          user: {
+            select: {
+              id: true,
+              email: true,
+            }
+          },
+          companyUser: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            }
+          }
+        }
+      });
 
-  // Update attendance with daily totals
-  await this.prisma.attendance.update({
-    where: { id: attendanceId },
-    data: {
-      totalWorkHours: Math.round(dailyTotals.totalWorkHours * 100) / 100,
-      totalOvertime: Math.round(dailyTotals.totalOvertime * 100) / 100
-    }
-  });
-}
-  private async calculateWorkedAndOvertime(
-  punchInTime: Date, 
-  punchOutTime: Date, 
-  userId?: string
-): Promise<{ workedHours: number; overtime: number }> {
-  // Calculate actual worked hours
-  const actualWorkedHours = (punchOutTime.getTime() - punchInTime.getTime()) / (1000 * 60 * 60);
-  const roundedWorkedHours = Math.round(actualWorkedHours * 100) / 100;
+      // Parse location JSON back to objects for response
+      const punchesWithParsedLocations = updatedAttendance.userPunches.map((punch: any) => ({
+        ...punch,
+        punchInLocation: punch.punchInLocation ? JSON.parse(punch.punchInLocation as string) : null,
+        punchOutLocation: punch.punchOutLocation ? JSON.parse(punch.punchOutLocation as string) : null,
+      }));
 
-  // If no userId provided, return only worked hours without overtime calculation
-  if (!userId) {
-    return {
-      workedHours: roundedWorkedHours,
-      overtime: 0
-    };
-  }
-
-  try {
-    // Get user's scheduled shift hours
-    const userShift = await this.prisma.shiftAttributeAssignment.findFirst({
-      where: {
-        assignedUserId: userId,
-      },
-      include: {
-        shiftAttribute: true
-      },
-      orderBy: {
-        assignedAt: 'desc'
-      }
-    });
-
-    // If no shift found, return only worked hours
-    if (!userShift) {
       return {
-        workedHours: roundedWorkedHours,
-        overtime: 0
+        attendance: {
+          ...updatedAttendance,
+          userPunches: punchesWithParsedLocations,
+        },
+        userStatus: userStatus,
+        currentPunch: {
+          ...updatedPunch,
+          punchInLocation: updatedPunch.punchInLocation ? JSON.parse(updatedPunch.punchInLocation as string) : null,
+          punchOutLocation: updatedPunch.punchOutLocation ? JSON.parse(updatedPunch.punchOutLocation as string) : null,
+        },
+        message: 'Punch Out successful!'
       };
+    } catch (error) {
+      throw new BadRequestException(error.message);
     }
-
-    const shiftAttribute = userShift.shiftAttribute;
-    
-    // Calculate scheduled working hours
-    const shiftStartTime = moment(shiftAttribute.startTime);
-    const shiftEndTime = moment(shiftAttribute.endTime);
-    const scheduledHours = shiftEndTime.diff(shiftStartTime, 'hours', true);
-    
-    // Subtract break duration if exists
-    const breakHours = shiftAttribute.breakDuration ? shiftAttribute.breakDuration / 60 : 0;
-    const netScheduledHours = scheduledHours - breakHours;
-
-    // Calculate overtime (worked hours beyond scheduled hours)
-    const overtime = Math.max(0, roundedWorkedHours - netScheduledHours);
-    const roundedOvertime = Math.round(overtime * 100) / 100;
-
-    console.log("Scheduled hours:", netScheduledHours, "Worked hours:", roundedWorkedHours, "Overtime:", roundedOvertime);
-
-    return {
-      workedHours: roundedWorkedHours,
-      overtime: roundedOvertime
-    };
-  } catch (error) {
-    console.error('Error calculating overtime:', error);
-    // If error in overtime calculation, return only worked hours
-    return {
-      workedHours: roundedWorkedHours,
-      overtime: 0
-    };
   }
-}
-  async findAll(filterAttendanceDto: FilterAttendanceDto) {
+
+  async findAll(filter: {
+    companyId?: string;
+    userId?: string;
+    startDate?: Date;
+    endDate?: Date;
+    page?: number;
+    limit?: number;
+  }) {
     try {
+      const { companyId, userId, startDate, endDate, page = 1, limit = 10 } = filter;
+      const skip = (page - 1) * limit;
+
       const where: any = {};
 
-      if (filterAttendanceDto.companyId) {
-        where.companyId = filterAttendanceDto.companyId;
+      if (companyId) where.companyId = companyId;
+      if (userId) where.userId = userId;
+      if (startDate || endDate) {
+        where.punchDate = {};
+        if (startDate) where.punchDate.gte = startDate;
+        if (endDate) where.punchDate.lte = endDate;
       }
 
-      if (filterAttendanceDto.userId) {
-        where.userId = filterAttendanceDto.userId;
-      }
-
-      if (filterAttendanceDto.companyUserId) {
-        where.companyUserId = filterAttendanceDto.companyUserId;
-      }
-
-      if (filterAttendanceDto.startDate || filterAttendanceDto.endDate) {
-        where.punchDate = {
-          ...(filterAttendanceDto.startDate && { gte: new Date(filterAttendanceDto.startDate) }),
-          ...(filterAttendanceDto.endDate && { lte: new Date(filterAttendanceDto.endDate) }),
-        };
-      }
-
-      if (filterAttendanceDto.finalStatus) {
-        where.finalStatus = filterAttendanceDto.finalStatus;
-      }
-
-      if (filterAttendanceDto.userName) {
-        where.user = {
-          email: {
-            contains: filterAttendanceDto.userName,
-            mode: 'insensitive',
+      const [attendances, total] = await Promise.all([
+        this.prisma.attendance.findMany({
+          where,
+          include: {
+            userPunches: {
+              orderBy: { punchIn: 'asc' }
+            },
+            user: {
+              select: {
+                email: true,
+              }
+            },
+            companyUser: {
+              select: {
+                firstName: true,
+                lastName: true,
+              }
+            }
           },
+          orderBy: { punchDate: 'desc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.attendance.count({ where })
+      ]);
+
+      // Parse location JSON for all punches
+      const attendancesWithParsedLocations = attendances.map(attendance => ({
+        ...attendance,
+        userPunches: attendance.userPunches.map(punch => ({
+          ...punch,
+          punchInLocation: punch.punchInLocation ? JSON.parse(punch.punchInLocation as string) : null,
+          punchOutLocation: punch.punchOutLocation ? JSON.parse(punch.punchOutLocation as string) : null,
+        })),
+      }));
+
+      return {
+        attendances: attendancesWithParsedLocations,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        }
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  async findUserAttendance(filter: {
+    companyId: string;
+    userId: string;
+    date?: Date;
+    startDate?: Date;
+    endDate?: Date;
+  }) {
+    try {
+      const { companyId, userId, date, startDate, endDate } = filter;
+
+      const where: any = {
+        companyId,
+        userId,
+      };
+
+      if (date) {
+        where.punchDate = date;
+      } else if (startDate && endDate) {
+        where.punchDate = {
+          gte: startDate,
+          lte: endDate,
         };
       }
 
       const attendances = await this.prisma.attendance.findMany({
         where,
         include: {
-          company: { select: { id: true, name: true } },
-          user: { select: { id: true, email: true } },
-          companyUser: {
-            include: {
-              user: { select: { id: true, email: true } },
-              role: { select: { id: true, name: true } },
-            },
-          },
           userPunches: {
-            orderBy: { punchIn: 'asc' },
+            orderBy: { punchIn: 'asc' }
           },
         },
         orderBy: { punchDate: 'desc' },
       });
 
-      return {
-        message: 'Attendances retrieved successfully',
-        data: attendances,
-      };
+      // Parse location JSON for all punches
+      const attendancesWithParsedLocations = attendances.map(attendance => ({
+        ...attendance,
+        userPunches: attendance.userPunches.map(punch => ({
+          ...punch,
+          punchInLocation: punch.punchInLocation ? JSON.parse(punch.punchInLocation as string) : null,
+          punchOutLocation: punch.punchOutLocation ? JSON.parse(punch.punchOutLocation as string) : null,
+        })),
+      }));
+
+      return attendancesWithParsedLocations;
     } catch (error) {
-      console.error('Error retrieving attendances:', error);
-      throw new InternalServerErrorException('Failed to retrieve attendances');
+      throw new BadRequestException(error.message);
     }
   }
 
@@ -479,33 +331,48 @@ private async updateDailyWorkHours(attendanceId: string) {
       const attendance = await this.prisma.attendance.findUnique({
         where: { id },
         include: {
-          company: { select: { id: true, name: true } },
-          user: { select: { id: true, email: true } },
-          companyUser: {
-            include: {
-              user: { select: { id: true, email: true } },
-              role: { select: { id: true, name: true } },
-            },
-          },
           userPunches: {
-            orderBy: { punchIn: 'asc' },
+            orderBy: { punchIn: 'asc' }
           },
+          user: {
+            select: {
+              id: true,
+              email: true,
+            }
+          },
+          companyUser: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            }
+          },
+          company: {
+            select: {
+              id: true,
+              name: true,
+            }
+          }
         },
       });
 
       if (!attendance) {
-        throw new NotFoundException('Attendance not found');
+        throw new NotFoundException(`Attendance record with ID ${id} not found`);
       }
 
-      return {
-        message: 'Attendance retrieved successfully',
-        data: attendance,
+      // Parse location JSON for all punches
+      const attendanceWithParsedLocations = {
+        ...attendance,
+        userPunches: attendance.userPunches.map(punch => ({
+          ...punch,
+          punchInLocation: punch.punchInLocation ? JSON.parse(punch.punchInLocation as string) : null,
+          punchOutLocation: punch.punchOutLocation ? JSON.parse(punch.punchOutLocation as string) : null,
+        })),
       };
+
+      return attendanceWithParsedLocations;
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Failed to retrieve attendance');
+      throw new BadRequestException(error.message);
     }
   }
 
@@ -516,42 +383,24 @@ private async updateDailyWorkHours(attendanceId: string) {
       });
 
       if (!existingAttendance) {
-        throw new NotFoundException('Attendance not found');
+        throw new NotFoundException(`Attendance record with ID ${id} not found`);
       }
 
       const updatedAttendance = await this.prisma.attendance.update({
         where: { id },
         data: {
-          ...(updateAttendanceDto.companyId && { companyId: updateAttendanceDto.companyId }),
-          ...(updateAttendanceDto.userId && { userId: updateAttendanceDto.userId }),
-          ...(updateAttendanceDto.companyUserId !== undefined && { companyUserId: updateAttendanceDto.companyUserId }),
-          ...(updateAttendanceDto.punchDate && { punchDate: new Date(updateAttendanceDto.punchDate) }),
-          ...(Object.prototype.hasOwnProperty.call(updateAttendanceDto, 'totalWorkHours') && { totalWorkHours: (updateAttendanceDto as any).totalWorkHours }),
-          ...(Object.prototype.hasOwnProperty.call(updateAttendanceDto, 'totalOvertime') && { totalOvertime: (updateAttendanceDto as any).totalOvertime }),
+          finalStatus: updateAttendanceDto.status as any,
+          totalWorkHours: updateAttendanceDto.workHours,
+          totalOvertime: updateAttendanceDto.overtime,
         },
         include: {
-          company: { select: { id: true, name: true } },
-          user: { select: { id: true, email: true } },
-          companyUser: {
-            include: {
-              user: { select: { id: true, email: true } },
-            },
-          },
-          userPunches: {
-            orderBy: { punchIn: 'asc' },
-          },
-        },
+          userPunches: true,
+        }
       });
 
-      return {
-        message: 'Attendance updated successfully',
-        data: updatedAttendance,
-      };
+      return updatedAttendance;
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Failed to update attendance');
+      throw new BadRequestException(error.message);
     }
   }
 
@@ -562,88 +411,40 @@ private async updateDailyWorkHours(attendanceId: string) {
       });
 
       if (!existingAttendance) {
-        throw new NotFoundException('Attendance not found');
+        throw new NotFoundException(`Attendance record with ID ${id} not found`);
       }
+
+      await this.prisma.userPunch.deleteMany({
+        where: { attendanceId: id },
+      });
 
       await this.prisma.attendance.delete({
         where: { id },
       });
 
-      return {
-        message: 'Attendance deleted successfully',
-      };
+      return { message: 'Attendance record deleted successfully' };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Failed to delete attendance');
+      throw new BadRequestException(error.message);
     }
   }
 
-  async getUserCurrentStatus(userId: string, companyId: string) {
+  async getUserAttendanceSummary(userId: string, companyId: string, month?: string) {
     try {
-      const today = new Date();
-      const dateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const startDate = month ?
+        new Date(`${month}-01`) :
+        new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-      const attendance = await this.prisma.attendance.findFirst({
-        where: {
-          companyId,
-          userId,
-          punchDate: dateOnly,
-        },
-        include: {
-          userPunches: {
-            orderBy: { punchIn: 'desc' },
-          },
-          user: { select: { id: true, email: true } },
-          company: { select: { id: true, name: true } },
-        },
-      });
+      const endDate = month ?
+        new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0) :
+        new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
 
-      if (!attendance) {
-        return {
-          message: 'User attendance status retrieved successfully',
-          data: {
-            isPunchedIn: false,
-            currentStatus: 'OUT',
-            lastPunch: null,
-            todayPunches: [],
-            message: 'No attendance record for today'
-          }
-        };
-      }
-
-      const lastPunchIn = attendance.userPunches.find(punch => punch.punchType === PunchType.IN && !punch.punchOut);
-      const isPunchedIn = !!lastPunchIn;
-
-      return {
-        message: 'User attendance status retrieved successfully',
-        data: {
-          isPunchedIn,
-          currentStatus: isPunchedIn ? 'IN' : 'OUT',
-          lastPunch: lastPunchIn || attendance.userPunches[0],
-          todayPunches: attendance.userPunches,
-          attendanceId: attendance.id,
-          user: attendance.user,
-          company: attendance.company,
-          punchDate: attendance.punchDate
-        }
-      };
-    } catch (error) {
-      console.error('Error retrieving user current status:', error);
-      throw new InternalServerErrorException('Failed to retrieve user current status');
-    }
-  }
-
-  async getUserAttendanceSummary(userId: string, companyId: string, startDate: string, endDate: string) {
-    try {
       const attendances = await this.prisma.attendance.findMany({
         where: {
           userId,
           companyId,
           punchDate: {
-            gte: new Date(startDate),
-            lte: new Date(endDate),
+            gte: startDate,
+            lte: endDate,
           },
         },
         include: {
@@ -651,25 +452,268 @@ private async updateDailyWorkHours(attendanceId: string) {
         },
       });
 
-      const summary = {
-        totalDays: attendances.length,
-        presentDays: attendances.filter(a => a.finalStatus === AttendanceStatus.PRESENT).length,
-        absentDays: attendances.filter(a => a.finalStatus === AttendanceStatus.ABSENT).length,
-        leaveDays: attendances.filter(a => a.finalStatus === AttendanceStatus.ON_LEAVE).length,
-        halfDays: attendances.filter(a => a.finalStatus === AttendanceStatus.HALF_DAY).length,
-        totalWorkHours: attendances.reduce((sum, a) => sum + (a.totalWorkHours || 0), 0),
-        totalOvertime: attendances.reduce((sum, a) => sum + (a.totalOvertime || 0), 0),
-        averageWorkHours: attendances.length > 0 ?
-          attendances.reduce((sum, a) => sum + (a.totalWorkHours || 0), 0) / attendances.length : 0,
-      };
+      const totalWorkHours = attendances.reduce((sum, attendance) =>
+        sum + (attendance.totalWorkHours || 0), 0
+      );
+      const totalOvertime = attendances.reduce((sum, attendance) =>
+        sum + (attendance.totalOvertime || 0), 0
+      );
+      const presentDays = attendances.filter(a =>
+        a.finalStatus === 'PRESENT' || a.finalStatus === 'LATE' || a.finalStatus === 'HALF_DAY'
+      ).length;
 
       return {
-        message: 'Attendance summary retrieved successfully',
-        data: summary,
+        userId,
+        companyId,
+        period: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`,
+        totalWorkDays: attendances.length,
+        presentDays,
+        absentDays: attendances.filter(a => a.finalStatus === 'ABSENT').length,
+        totalWorkHours,
+        totalOvertime,
+        attendances: attendances.map(a => ({
+          date: a.punchDate,
+          status: a.finalStatus,
+          workHours: a.totalWorkHours,
+          overtime: a.totalOvertime,
+          punches: a.userPunches.length,
+        })),
       };
     } catch (error) {
-      console.error('Error retrieving attendance summary:', error);
-      throw new InternalServerErrorException('Failed to retrieve attendance summary');
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  // Helper Methods
+  private calculateWorkHours(totalHours: number, userStatus: any) {
+    if (!userStatus.canPunch) {
+      return {
+        workHours: 0,
+        overtime: totalHours
+      };
+    }
+
+    const standardWorkHours = 8;
+    const workHours = Math.min(totalHours, standardWorkHours);
+    const overtime = Math.max(0, totalHours - standardWorkHours);
+
+    return {
+      workHours,
+      overtime
+    };
+  }
+
+  private async recalculateAttendanceTotals(attendanceId: string) {
+    const allPunches = await this.prisma.userPunch.findMany({
+      where: { attendanceId }
+    });
+
+    const totalWorkHours = allPunches.reduce((sum, punch) => sum + (punch.workHours || 0), 0);
+    const totalOvertime = allPunches.reduce((sum, punch) => sum + (punch.overtime || 0), 0);
+
+    let finalStatus = 'PRESENT';
+    if (allPunches.length === 0) {
+      finalStatus = 'ABSENT';
+    } else if (allPunches.some(punch => punch.status === 'HALF_DAY')) {
+      finalStatus = 'HALF_DAY';
+    } else if (allPunches.some(punch => punch.status === 'LATE')) {
+      finalStatus = 'LATE';
+    }
+
+    await this.prisma.attendance.update({
+      where: { id: attendanceId },
+      data: {
+        totalWorkHours,
+        totalOvertime,
+        finalStatus: finalStatus as any,
+      },
+    });
+  }
+
+  async checkUserStatus(companyId: string, userId: string) {
+    const currentDate = new Date();
+
+    // Check if user is on leave
+    const userLeave = await this.prisma.leave.findFirst({
+      where: {
+        userId: userId,
+        startDate: { lte: currentDate },
+        endDate: { gte: currentDate },
+        status: 'APPROVED',
+        companyId: companyId,
+      },
+    });
+
+    if (userLeave) {
+      return {
+        canPunch: false,
+        reason: 'ON_LEAVE',
+        message: 'User is currently on approved leave',
+        leaveDetails: userLeave
+      };
+    }
+
+    // Check for company-wide off days
+    const companyOffDay = await this.prisma.offDay.findFirst({
+      where: {
+        companyId: companyId,
+        fromDate: { lte: currentDate },
+        toDate: { gte: currentDate },
+      },
+    });
+
+    if (companyOffDay) {
+      return {
+        canPunch: false,
+        reason: 'COMPANY_OFF_DAY',
+        message: 'Today is a company off day',
+        offDayDetails: companyOffDay
+      };
+    }
+
+    // Check for user-specific off days (UsersOff)
+    const userSpecificOffDay = await this.prisma.usersOff.findFirst({
+      where: {
+        userId: userId,
+        offDay: {
+          fromDate: { lte: currentDate },
+          toDate: { gte: currentDate },
+          companyId: companyId,
+        }
+      },
+      include: {
+        offDay: true
+      }
+    });
+
+    if (userSpecificOffDay) {
+      return {
+        canPunch: false,
+        reason: 'USER_SPECIFIC_OFF_DAY',
+        message: 'User has a scheduled off day',
+        offDayDetails: userSpecificOffDay.offDay
+      };
+    }
+
+    // Check for recurring weekly off days (CompanyOff)
+    const currentDayOfWeek = currentDate.getDay();
+    const weeklyCompanyOff = await this.prisma.companyOff.findFirst({
+      where: {
+        companyId: companyId,
+        weekDay: {
+          has: currentDayOfWeek
+        }
+      },
+    });
+
+    if (weeklyCompanyOff) {
+      return {
+        canPunch: false,
+        reason: 'WEEKLY_COMPANY_OFF',
+        message: 'Today is a weekly company off day',
+        companyOffDetails: weeklyCompanyOff
+      };
+    }
+
+    return {
+      canPunch: true,
+      reason: 'ELIGIBLE_FOR_PUNCH',
+      message: 'User is eligible to punch in'
+    };
+  }
+
+  async checkUserShift(companyUserId: string, companyId: string): Promise<{ isInShift: boolean; message: string; shiftDetails?: any }> {
+    try {
+      const userShift = await this.prisma.shiftAttributeAssignment.findFirst({
+        where: {
+          assignedUserId: companyUserId,
+          shiftAttribute: {
+            isActive: true,
+            shift: {
+              companyId: companyId
+            }
+          }
+        },
+        include: {
+          shiftAttribute: {
+            include: {
+              shift: {
+                select: {
+                  companyId: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!userShift) {
+        return {
+          isInShift: false,
+          message: 'No active shift assigned to user'
+        };
+      }
+
+      const shiftAttribute = userShift.shiftAttribute;
+      const currentTime = new Date();
+      const currentDay = currentTime.getDay();
+
+      const startTime = new Date(shiftAttribute.startTime);
+      const endTime = new Date(shiftAttribute.endTime);
+
+      const shiftStartToday = new Date(currentTime);
+      shiftStartToday.setHours(startTime.getHours(), startTime.getMinutes(), startTime.getSeconds(), 0);
+
+      const shiftEndToday = new Date(currentTime);
+      shiftEndToday.setHours(endTime.getHours(), endTime.getMinutes(), endTime.getSeconds(), 0);
+
+      if (shiftEndToday <= shiftStartToday) {
+        shiftEndToday.setDate(shiftEndToday.getDate() + 1);
+      }
+
+      const gracePeriodMs = (shiftAttribute.gracePeriodMinutes || 0) * 60 * 1000;
+      const adjustedStartTime = new Date(shiftStartToday.getTime() - gracePeriodMs);
+      const adjustedEndTime = new Date(shiftEndToday.getTime() + gracePeriodMs);
+
+      const isInShiftTime = currentTime >= adjustedStartTime && currentTime <= adjustedEndTime;
+
+      if (isInShiftTime) {
+        return {
+          isInShift: true,
+          message: 'User is within assigned shift time',
+          shiftDetails: {
+            shiftName: shiftAttribute.shiftName,
+            startTime: shiftAttribute.startTime,
+            endTime: shiftAttribute.endTime,
+            gracePeriodMinutes: shiftAttribute.gracePeriodMinutes,
+            breakDuration: shiftAttribute.breakDuration,
+            currentTime: currentTime,
+            shiftStartToday: shiftStartToday,
+            shiftEndToday: shiftEndToday
+          }
+        };
+      } else {
+        return {
+          isInShift: false,
+          message: 'User is outside assigned shift time',
+          shiftDetails: {
+            shiftName: shiftAttribute.shiftName,
+            startTime: shiftAttribute.startTime,
+            endTime: shiftAttribute.endTime,
+            gracePeriodMinutes: shiftAttribute.gracePeriodMinutes,
+            currentTime: currentTime,
+            shiftStartToday: shiftStartToday,
+            shiftEndToday: shiftEndToday
+          }
+        };
+      }
+
+    } catch (error) {
+      console.error('Error checking user shift:', error);
+      return {
+        isInShift: false,
+        message: 'Error checking shift assignment'
+      };
     }
   }
 }
